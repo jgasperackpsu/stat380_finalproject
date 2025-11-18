@@ -1,0 +1,361 @@
+---
+title: "Final Project EDA"
+author: "Jackson Gasperack"
+date: "2025-11-17"
+format:
+  pdf:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Front Matter
+```{r}
+#| label: frontMatter
+#| result: 'hide'
+
+# Add libraries
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+
+# Load in data files
+zip_raw <- "https://codeload.github.com/jgasperackpsu/stat380_finalproject/zip/refs/heads/main"
+
+temp <- tempfile(fileext = ".zip")
+temp_dir = tempdir()
+download.file(zip_raw, temp)
+unzip(temp, exdir = temp_dir)
+
+csv_files <- list.files(temp_dir, pattern = "\\.csv$", full.names = TRUE, 
+                        recursive = TRUE)
+
+# Convert files to datasets
+datasets <- lapply(csv_files, read_csv)
+names(datasets) <- tools::file_path_sans_ext(basename(csv_files))
+
+names <- rep(NA, length(datasets))
+for(i in seq_along(datasets)){
+  names[i] <- names(datasets[i])
+}
+
+for(name in names){
+  assign(name, datasets[[name]])
+}
+```
+
+## Cleaning
+
+```{r}
+#| label: cleaningTypes
+
+# Some datasets have character integers
+cleanSEEDS <- function(seed){
+  ifelse(seed == "N/A", NA, as.numeric(seed))
+}
+
+cbb22$SEED <- sapply(cbb22$SEED, cleanSEEDS)
+cbb23$SEED <- sapply(cbb23$SEED, cleanSEEDS)
+cbb24$SEED <- sapply(cbb24$SEED, cleanSEEDS)
+cbb25$SEED <- sapply(cbb25$SEED, cleanSEEDS)
+cbb$SEED <- sapply(cbb$SEED, cleanSEEDS)
+
+print(str(cbb25))
+
+unique_vals <- sapply(cbb25, function(x) length(unique(x)))
+print(unique_vals)
+```
+```{r}
+#| label: sameVars
+
+# 2020 no postseason -> COVID
+# 2025 no postseason -> Season just began
+# All other datasets should have same number variables and '20,'25 have 1 less
+
+cbb25 <- cbb25 %>% select(-c("RK", "3PR", "3PRD")) 
+# Remove stats that only appear in '25
+# Remove rank as there's a seed column
+# Keep rank in 2020 since there's no Seed column
+
+# Make col names the same
+cbb24 <- cbb24 %>% rename(EFG_O = `EFG%`,  EFG_D = `EFGD%`)
+cbb22 <- cbb22 %>% rename(EFG_D = EFGD_D)
+```
+
+## Relationships
+
+### Distributions
+
+```{r}
+#| label: offensiveDist
+
+# Finding the distributions of our offensive stats
+
+off_stats <- c("ADJOE","EFG_O","TOR","ORB","FTR","2P_O","3P_O")
+nice_names <- c(
+      "ADJOE"="Adjusted Offensive Efficiency", 
+      "EFG_O"="Effective Field Goal Rate",
+      "TOR"="Turnover Rate",
+      "ORB"="Offensive Rebound Rate",
+      "FTR"="Free Throw Rate",
+      "2P_O"="2-Point FG Rate",
+      "3P_O"="3-Point FG Rate"
+      )
+
+stats_since2013 <- cbb %>%
+  group_by(TEAM) %>%
+  summarize(
+    ADJOE = mean(ADJOE),
+    ADJDE = mean(ADJDE),
+    EFG_O = mean(EFG_O),
+    EFG_D = mean(EFG_D),
+    TOR = mean(TOR),
+    TORD = mean(TORD),
+    ORB = mean(ORB),
+    DRB = mean (DRB),
+    FTR = mean(FTR),
+    FTRD = mean(FTRD),
+    `2P_O` = mean(`2P_O`),
+    `2P_D` = mean(`2P_D`),
+    `3P_O` = mean(`3P_O`),
+    `3P_D` = mean(`3P_D`)
+  ) %>%
+  mutate(across(where(is.numeric), ~round(.x,2)))
+
+for(stat in off_stats){
+  print(
+  ggplot(data = stats_since2013, mapping = aes(x = .data[[stat]])) +
+    geom_histogram(fill = "lightblue", color = "black") +
+    labs(title = paste("Distribution of",nice_names[stat]),
+         x = nice_names[stat],
+         y = "Count") +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5),
+          axis.title = element_text(face = "bold"))
+  )
+}
+
+```
+
+```{r}
+#| label: defensiveDist
+
+def_stats <- c("ADJDE","EFG_D","TORD","DRB","FTRD","2P_D","3P_D")
+nice_names_def <- c(
+      "ADJDE"="Adjusted Defensive Efficiency", 
+      "EFG_D"="Effective Field Goal Rate Allowed",
+      "TORD"="Turnover Rate Allowed",
+      "DRB"="Offensive Rebound Rate Allowed",
+      "FTRD"="Free Throw Rate Allowed",
+      "2P_D"="2-Point FG Rate Allowed",
+      "3P_D"="3-Point FG Rate Allowed"
+      )
+
+for(stat in def_stats){
+  print(
+  ggplot(data = stats_since2013, mapping = aes(x = .data[[stat]])) +
+    geom_histogram(fill = "lightblue", color = "black") +
+    labs(title = paste("Distribution of",nice_names_def[stat]),
+         x = nice_names_def[stat],
+         y = "Count") +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5),
+          axis.title = element_text(face = "bold"))
+  )
+}
+```
+
+### Correlations
+
+```{r}
+#| label: seedProduction
+
+seed_game_production <- cbb %>%
+  filter(!is.na(SEED)) %>%
+  group_by(TEAM, YEAR, SEED) %>%
+  summarize(
+    ADJOE = mean(ADJOE),
+    ADJDE = mean(ADJDE)
+  )
+
+nrow(seed_game_production)
+sums <- rep(NA,16) # Check that there are 4 of each seed per year
+for(i in seq_along(sums)){
+  sums[i] <- sum(seed_game_production==i)
+}
+
+sumsperyear <- rep(NA,16) # There isn't so we have to fix that
+for(i in seq_along(sumsperyear)){
+  sumsperyear[i] <- list(table(filter(seed_game_production, SEED == i)$YEAR))
+}
+```
+
+```{r}
+#| label: correctSeedings
+
+cbb <- cbb %>%
+  mutate(SEED = case_when(
+    (TEAM == "Iowa St.") & (YEAR == 2016) ~ 4L,
+    (TEAM == "George Washington") & (YEAR == 2014) ~ 9L,
+    TRUE ~ SEED
+  ),
+    POSTSEASON = case_when(
+      POSTSEASON == "R68" ~ "R64",
+      POSTSEASON == "N/A" ~ NA,
+      TRUE ~ POSTSEASON
+    )
+  )
+
+# There are 6 16 seeds for every year and I found there are 2 other teams of low 
+# seedings as well, those teams are the first four teams that got beat in the games 
+# leading up to the march madness so the winners secure their spot in the actual 
+# tournament
+# So instead of removing those teams I'll be naming them a new integer -1
+
+first4_2013 <- c("Middle Tennessee", "Boise St.", "LIU Brooklyn", "Liberty")
+first4_2014 <- c("Iowa", "Xavier", "Texas Southern", "Mount St. Mary's")
+first4_2015 <- c("Boise St.","BYU","North Florida", "Manhattan")
+first4_2016 <- c("Vanderbilt", "Tulsa","Fairleigh Dickinson", "Southern")
+first4_2017 <-c("Wake Forest","North Carolina Central","Providence","New Orleans")
+first4_2018 <- c("UCLA","Arizona St.","North Carolina Central","LIU Brooklyn")
+first4_2019 <- c("Temple","St. John's","Prairie View A&M","North Carolina Central")
+first4_2021 <- c("Michigan St.","Wichita St.","Mount St. Mary's","Appalachian St.")
+first4_2022 <- c("Rutgers","Wyoming","Texas A&M Corpus Chris","Bryant")
+first4_2023 <- c("Nevada","Mississippi St.","Texas Southern","Southeast Missouri St.")
+first4_2024 <- c("Virginia","Boise St.","Howard","Montana St.")
+
+cbb <- cbb %>%
+  mutate(SEED = case_when(
+    (TEAM %in% first4_2013) & (YEAR == 2013) ~ -1,
+    (TEAM %in% first4_2014) & (YEAR == 2014) ~ -1,
+    (TEAM %in% first4_2015) & (YEAR == 2015) ~ -1,
+    (TEAM %in% first4_2016) & (YEAR == 2016) ~ -1,
+    (TEAM %in% first4_2017) & (YEAR == 2017) ~ -1,
+    (TEAM %in% first4_2018) & (YEAR == 2018) ~ -1,
+    (TEAM %in% first4_2019) & (YEAR == 2019) ~ -1,
+    (TEAM %in% first4_2021) & (YEAR == 2021) ~ -1,
+    (TEAM %in% first4_2022) & (YEAR == 2022) ~ -1,
+    (TEAM %in% first4_2023) & (YEAR == 2023) ~ -1,
+    (TEAM %in% first4_2024) & (YEAR == 2024) ~ -1,
+    TRUE ~ SEED
+  ))
+
+new_seed_game_production <- cbb %>%
+  filter(!is.na(SEED)) %>%
+  group_by(TEAM, YEAR, SEED) %>%
+  summarize(
+    ADJOE = mean(ADJOE),
+    ADJDE = mean(ADJDE)
+  )
+
+new_sumsperyear <- rep(NA,17) # New check
+for(i in seq_along(new_sumsperyear)){
+  new_sumsperyear[i] <- list(table(filter(new_seed_game_production, SEED ==  
+                                      ifelse(i==17,-1,i))$YEAR))
+}
+```
+```{r}
+#| label: seedVSefficiency
+
+top4 <- new_seed_game_production %>%
+  filter(SEED <= 4 & SEED > 0)
+bottom4 <- new_seed_game_production %>%
+  filter(SEED > 12)
+best_and_worst <- bind_rows(top4, bottom4) 
+# Using best group and worst group since the difference between the one seed and the 
+# 16th seed is smaller than most people think, and since showing all data points is 
+# too visually crowding, we compare the "worst" teams to the "best" teams
+
+ggplot(
+  data = top4,
+  mapping = aes(x = ADJOE, y = ADJDE, color = factor(SEED))
+) +
+  geom_point(alpha = 0.75, size = 1.5) +
+  geom_smooth(linewidth = .8, color = "skyblue", se = FALSE) +
+  labs(title = "Offensive vs. Defensive Efficiency by Seeding",
+       x = "Offensive Efficiency",
+       y = "Defensive Efficiency",
+       color = "Seeding") +
+  scale_color_manual(values = c("1" = "lightgreen", "2" = "yellowgreen", "3" =  
+                                  "orange", "4" = "orangered")) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold", hjust = 0.5))
+
+ggplot(
+  data = best_and_worst,
+  mapping = aes(x = ADJOE, y = ADJDE, color = factor(SEED))
+) +
+  geom_point(alpha = 0.75, size = 3) +
+  geom_smooth(linewidth = .8, color = "skyblue", se = FALSE) +
+  labs(title = "Offensive vs. Defensive Efficiency by Seeding",
+       x = "Offensive Efficiency",
+       y = "Defensive Efficiency",
+       color = "Seeding") +
+  scale_color_manual(values = c("1" = "lightgreen", "2" = "green", "3" = "greenyellow",
+                    "4" = "yellow", "13" = "orange", "14" = "orangered", "15" = "red",
+                    "16" = "darkred")) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold", hjust = 0.5))
+```
+
+
+```{r}
+#| label: productionContributors
+
+off_contrib <- c("EFG_O","TOR","ORB","FTR","2P_O","3P_O")
+def_contrib <- c("EFG_D","TORD","DRB","FTRD","2P_D","3P_D")
+off_corrs <- rep(NA, length(off_contrib))
+def_corrs <- rep(NA, length(def_contrib))
+
+for(i in seq_along(off_contrib)){
+  stat <- off_contrib[i]
+  off_corrs[i] <- cor(cbb$ADJOE, cbb[[stat]], use = "complete.obs")
+}
+off_corrs
+
+for(i in seq_along(def_contrib)){
+  stat <- def_contrib[i]
+  def_corrs[i] <- cor(cbb$ADJDE, cbb[[stat]], use = "complete.obs")
+}
+def_corrs
+```
+
+```{r}
+#| label: postseasonStats
+
+postseasonRanks <- cbb %>%
+  group_by(POSTSEASON) %>%
+  summarize(
+    ADJOE = mean(ADJOE),
+    ADJDE = mean(ADJDE),
+  ) %>%
+  mutate(POSTSEASON =
+  factor(POSTSEASON, levels = c("Champions", "2ND", "F4", "E8", "S16", "R32", "R64"))
+  )
+  
+ggplot(
+  data = postseasonRanks,
+  mapping = aes(x = ADJOE, y = ADJDE, color = POSTSEASON)
+) + 
+  geom_point(alpha = 0.75, size = 3.5) +
+  geom_smooth(linewidth = .8, color = "steelblue", se = FALSE) +
+  labs(title = "Offensive vs. Defensive Efficiency by Postseason Results",
+       x = "Offensive Efficiency",
+       y = "Defensive Efficiency",
+       color = "Postseason Results") +
+  scale_color_manual(values = c("Champions" = "gold", "2ND" = "gray", "F4" ="brown",
+                                "E8" = "lightblue", "R16" = "blue","R32" = "darkblue",
+                                "R64"= "navy"), na.value = "black") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold", hjust = 0.5))
+  
+```
+
