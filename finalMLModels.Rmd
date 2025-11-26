@@ -190,7 +190,7 @@ ggplot(data = f1_k_df, mapping = aes(x = k, y = f1)) +
        subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
        x = "k-Value for kNN model",
        y = "F1 Score") +
-  theme_minimal() +
+  theme_bw() +
   theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
         plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
         axis.title = element_text(face = "bold")
@@ -360,13 +360,13 @@ thresholds[best_index_RF]
 f1_vec_RF[best_index_RF]
 
 # Find accuracy of best threshold
-pred_best_RF <- ifelse(rf_probs > thresholds[best_index], 1, 0)
+pred_best_RF <- ifelse(rf_probs > thresholds[best_index_RF], 1, 0)
 acc_RF <- mean(pred_best_RF == y_test_RF)
 acc_RF
 ```
 
 ```{r}
-#| label: thresholdVSF1
+#| label: thresholdVSF1_RF
 
 f1_threshold_RF_df <- data.frame(
   threshold=thresholds,
@@ -374,13 +374,12 @@ f1_threshold_RF_df <- data.frame(
 )
 
 ggplot(data = f1_threshold_RF_df, mapping = aes(x = threshold, y = f1)) +
-  geom_point(alpha = 0.8) +
-  geom_smooth(se = F, method = "loess", color = "blue") +
+  geom_point(alpha = 0.8, color = "blue") +
   labs(title = "F1 Score vs. Threshold",
        subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
        x = "Threshold for Random Forest Model",
        y = "F1 Score") +
-  theme_gray() +
+  theme_bw() +
   theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
         plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
         axis.title = element_text(face = "bold")
@@ -398,10 +397,10 @@ roc_knn <- roc(y_test, knn_probs)
 roc_nn  <- roc(y_test_NN, nn_probs)
 roc_rf  <- roc(y_test_RF, rf_probs)
 
-plot(roc_knn, col="blue", main="ROC Curves Comparison")
+plot(roc_knn, col="red", main="ROC Curves Comparison")
 lines(roc_nn, col="green")
-lines(roc_rf, col="red")
-legend("bottomright", legend=c("kNN","NN","RF"), col=c("blue","green","red"), lwd=2)
+lines(roc_rf, col="blue")
+legend("bottomright", legend=c("RF","NN","kNN"), col=c("blue","green","red"), lwd=2)
 
 # Area under curves
 auc_knn <- auc(roc_knn)
@@ -502,5 +501,56 @@ for(i in seq_along(rf_metrics)){
 }
 ```
 
+```{r}
+#| label: predict2025
+
+cbb25_test <- cbb25 %>%
+  rename(
+    "TPR" = `2P_O`,
+    "TPRD" = `2P_D`
+  ) %>%
+  select(Team, all_of(features_RF)) 
+
+probs_2025 <- predict(rf_model, 
+                      newdata = cbb25_test, 
+                      type = "prob")[,2]
+pred_2025 <- ifelse(probs_2025 > thresholds[best_index_RF], 1, 0)
+
+for(i in seq_along(probs_2025)){
+  names(probs_2025) <- cbb25_test$Team
+}
+
+predictions <- data.frame(
+  probs = probs_2025,
+  preds = pred_2025,
+  Team = cbb25_test$Team
+) %>%
+  arrange(desc(probs))
+
+predictedFinalFours <- predictions %>%
+  filter(preds == 1) %>%
+  mutate(probs = round(probs,2)) %>%
+  arrange(desc(probs))
+
+top4Teams <- predictions %>%
+  top_n(4, probs)
+
+## Plot Top 4 teams and 4 honorable mentions
+ggplot(
+  data = predictedFinalFours,
+  mapping = aes(x = reorder(Team, -probs), y = probs)
+) +
+  geom_col(color = "black", fill = "skyblue") +
+  geom_text(aes(label = probs),
+            vjust = -0.3, size = 3)+
+  scale_y_continuous(limits = c(0,1)) +
+  labs(title = "Teams and Their Probability to Make the Final Four",
+       x = "Team",
+       y = "Probability") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
 
 
