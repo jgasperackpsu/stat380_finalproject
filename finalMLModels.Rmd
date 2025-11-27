@@ -1,0 +1,761 @@
+---
+title: "Final Project ML Model Creation"
+author: "Jackson Gasperack & Sawan Pandita"
+date: "2025-11-26"
+format:
+  pdf:
+    toc: true
+---
+
+```{r}
+load(file = "EDA.RData")
+```
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+## Front Matter
+```{r}
+#| label: frontMatter
+
+# Add libraries
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(glmnet)
+library(randomForest)
+library(FNN)
+library(pROC)
+library(nnet)
+library(PRROC)
+# NEW LIBRARIES ADDED
+library(xgboost) 
+library(Matrix)
+library(e1071)
+
+```
+
+Mentioned in class:
+
+Models:
+Simple/Multiple Regression, Logistic Regression, Binomial Regression, k-Nearest Neighbors (Regression/Classification), Naïve Bayes, SVM, Spline Regression, Neural Networks
+
+Model Evaluations:
+RMSE, k-fold Cross Validation, Confusion Matrix (Accuracy, Recall, ...), ROC Curves, AUC, R-squared, Subset Selection (Forward, Backward), Shrinkage (LASSO, Ridge), AIC, BIC, MAE, Bootstrap Validation
+
+NOT Mentioned in class:
+
+Models:
+RandomForest, XGBoost, Poisson/Gamma Regression, t-SNE, PCA, k-Means
+
+Model Evaluations:
+Precision-Recall Curve, F1 Score, MAPE
+
+## Question
+
+Can we use the stats of the last 12 years to predict who will be in the final four for March Madness?
+
+## New variable
+
+```{r}
+#| label: newVar
+
+cbb <- cbb %>%
+  mutate(
+    isFinalFour = ifelse(POSTSEASON %in% c("Champions","2ND","F4"), 1, 0),
+    isFinalFour = ifelse(is.na(POSTSEASON), 0, isFinalFour),
+    POSTSEASON = ifelse(is.na(POSTSEASON), "No Playoffs", POSTSEASON),
+    SEED = ifelse(is.na(SEED), "No Seeding", SEED)
+  )
+```
+
+
+## Find best feature set
+
+```{r}
+#| label: featureSelection
+#| results: 'hide'
+
+# Backwards subset selection
+full_model <- glm(isFinalFour ~ CONF + W + ADJOE + ADJDE + BARTHAG + EFG_O +
+                   EFG_D + TOR + TORD + ORB + DRB + FTR + FTRD + `2P_O` +
+                   `2P_D` + `3P_O` + `3P_D` + ADJ_T + SEED,
+                 data = cbb,
+                 family = binomial)
+
+null_model <- glm(isFinalFour ~ 1, data = cbb, family = binomial)
+
+forward_selection <- step(null_model, 
+                          scope = list(lower = null_model,
+                                       upper = full_model),
+                          direction = "forward")
+
+backward_selection <- step(full_model, direction = "backward")
+
+stepwise_selection <- step(full_model, direction = "both")
+
+print(summary(forward_selection))
+print(summary(backward_selection))
+print(summary(stepwise_selection))
+```
+Forward model is the one we'll move forward with, lowest AIC.
+X = W, ADJOE, TOR, FTR, 2P_D, 2P_O, and BARTHAG but since it's not statistically significant we will try and replace it with some other variables
+
+```{r}
+#| label: modelTesting
+
+model1 <- glm(isFinalFour ~ W + ADJOE + TOR + FTR + `2P_D` + `2P_O` + ADJDE + TORD,
+              data = cbb,
+              family = "binomial")
+
+summary(model1)
+```
+Found model1 adds two more predictors to reduce underfitting while also decreasing AIC
+
+## kNN
+
+```{r}
+#| label: kNearestNeighbors
+
+features <- c("W","ADJOE","ADJDE","2P_O","2P_D","TOR","TORD","FTR")
+max_k <- 30
+num_folds <- 10
+folds <- cut(1:nrow(cbb), breaks = num_folds, labels = FALSE)
+
+f1_vec <- rep(NA, max_k) # w/ rare successes just accuracy is misleading
+
+set.seed(1234) # Reproducibility
+folds <- sample(folds) # k-fold CV on sample
+set.seed(NULL)
+
+# Train and test data
+for(i in 1:max_k){
+  fold_f1 <- rep(NA,num_folds)
+  
+    for(j in 1:num_folds){
+    test_ind <- which(folds == j)
+    train_data <- cbb[-test_ind,c(features,"isFinalFour")]
+    test_data <- cbb[test_ind,c(features,"isFinalFour")]
+    
+    X_train <- train_data[,features]
+    X_test <- test_data[,features]
+    y_train <- train_data$isFinalFour
+    y_test <- test_data$isFinalFour
+    
+    # Scale features
+    X_train_scaled <- scale(X_train)
+    X_test_scaled <- scale(X_test, center = attr(X_train_scaled, "scaled:center"),
+                                   scale = attr(X_train_scaled, "scaled:scale"))
+    
+    # kNN classifier 
+    pred <- knn(X_train_scaled, X_test_scaled, cl = y_train, k = i)
+    cm <- table(Predicted = pred, Actual = y_test)
+    
+    TP <- ifelse("1" %in% rownames(cm) & "1" %in% colnames(cm), cm["1","1"], 0)
+    FP <- ifelse("1" %in% rownames(cm) & "0" %in% colnames(cm), cm["1","0"], 0)
+    FN <- ifelse("0" %in% rownames(cm) & "1" %in% colnames(cm), cm["0","1"], 0)
+  
+    precision <- ifelse((TP + FP) > 0, TP/(TP+FP), 0)
+    recall <- ifelse((TP + FN) > 0, TP/(TP+FN), 0)
+    fold_f1[j] <- ifelse((precision + recall) > 0, 
+                       2 * precision * recall / (precision + recall),
+                       0)
+    }
+  
+  f1_vec[i] <- mean(fold_f1)
+}
+
+best_k = which.max(f1_vec)
+best_k
+f1_vec[best_k]
+
+# Find accuracy of k = 3
+knn_model <- knn(X_train_scaled, X_test_scaled, cl = y_train, k = 3, prob = TRUE)
+knn_probs <- attr(knn_model, "prob")  # probability of the predicted class
+acc_k3 <- mean(knn_model == y_test)
+acc_k3
+```
+
+```{r}
+#| label: f1VSk
+
+f1_k_df <- data.frame(
+  k=1:max_k,
+  f1=f1_vec
+)
+
+ggplot(data = f1_k_df, mapping = aes(x = k, y = f1)) +
+  geom_line() +
+  geom_point(alpha = 0.8, color = "red") +
+  labs(title = "F1 Score vs. k-Value",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "k-Value for kNN model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
+## Neural Networks
+
+```{r}
+#| label: neuralNetwork
+
+# This time we won't use k-fold for our sampling
+
+set.seed(1234)
+train_inds_NN <- sample(1:nrow(cbb),.85*nrow(cbb)) # 85/15 split
+set.seed(NULL)
+
+train_NN <- cbb[train_inds_NN,c(features,"isFinalFour")]
+test_NN <- cbb[-train_inds_NN,c(features,"isFinalFour")]
+
+# split into x and y
+X_train_NN <- scale(train_NN[,features])
+X_test_NN <- scale(test_NN[,features], 
+                center = attr(X_train_NN, "scaled:center"),
+                scale = attr(X_train_NN, "scaled:scale"))
+
+y_train_NN <- train_NN$isFinalFour
+y_test_NN <- test_NN$isFinalFour
+
+# Create model
+
+nn_model <- nnet(
+  x = X_train_NN,
+  y = y_train_NN,
+  size = 5,
+  maxit = 1000,
+  linout = F,
+  entropy = T
+)
+```
+
+```{r}
+#| label: neuralEval
+
+# NN evaluations
+nn_probs <- predict(nn_model, X_test_NN)[,1]
+
+# do k-fold for best possible threshold from 0.001-0.15 since 4/350 teams make
+# final 4 every year
+thresholds <- seq(0.001, 0.15, by = 0.001)
+f1_vec_NN <- rep(NA,length(thresholds))
+for(i in seq_along(thresholds)){
+  nn_pred <- ifelse(nn_probs > thresholds[i], 1, 0)
+  cm <- table(Predicted = nn_pred, Actual = y_test_NN)
+  
+  TP <- ifelse("1" %in% rownames(cm) & "1" %in% colnames(cm), cm["1","1"], 0)
+  FP <- ifelse("1" %in% rownames(cm) & "0" %in% colnames(cm), cm["1","0"], 0)
+  FN <- ifelse("0" %in% rownames(cm) & "1" %in% colnames(cm), cm["0","1"], 0)
+
+  precision_NN <- ifelse((TP + FP) > 0, TP/(TP+FP), 0)
+  recall_NN <- ifelse((TP + FN) > 0, TP/(TP+FN), 0)
+  f1_vec_NN[i] <- 2*precision_NN*recall_NN/(precision_NN + recall_NN)
+}
+
+best_index <- which.max(f1_vec_NN)
+thresholds[best_index]
+f1_vec_NN[best_index]
+
+# Find accuracy of best threshold
+pred_best <- ifelse(nn_probs > thresholds[best_index], 1, 0)
+acc_NN <- mean(pred_best == y_test_NN)
+acc_NN
+```
+
+
+```{r}
+#| label: thresholdVSF1
+
+f1_threshold_df <- data.frame(
+  threshold=thresholds,
+  f1=f1_vec_NN
+)
+
+ggplot(data = f1_threshold_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "darkgreen") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Neural Network Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
+## Random Forest
+```{r}
+#| label: randomForest
+
+set.seed(1234)
+train_inds_RF <- sample(1:nrow(cbb),.85*nrow(cbb))
+set.seed(NULL)
+
+features_RF <- c("W","ADJOE","ADJDE","TPR","TPRD","TOR","TORD","FTR")
+# Note TPR and TPRD is 2P_O/D but randomForest model was having trouble parsing
+# backticks and variables that start with integer
+
+train_RF <- cbb[train_inds_RF,c(features,"isFinalFour")]
+test_RF <- cbb[-train_inds_RF,c(features,"isFinalFour")]
+
+train_RF <- train_RF %>%
+  rename(
+    "TPR" = `2P_O`, # Two-point rate
+    "TPRD" = `2P_D`
+  ) %>%
+  mutate(isFinalFour = factor(isFinalFour, levels = c(0,1)))
+test_RF <- test_RF %>%
+  rename(
+    "TPR" = `2P_O`,
+    "TPRD" = `2P_D`
+  ) %>%
+  mutate(isFinalFour = factor(isFinalFour, levels = c(0,1)))
+
+X_train_RF <- scale(train_RF[,features_RF])
+X_test_RF <- scale(test_RF[,features_RF], 
+                   center = attr(X_train_RF, "scaled:center"),
+                   scale = attr(X_train_RF, "scaled:scale"))
+
+y_train_RF <- train_RF$isFinalFour
+y_test_RF <- test_RF$isFinalFour
+
+rf_model <- randomForest(
+  isFinalFour ~ TPR + TPRD + W + ADJOE + ADJDE + TOR + TORD + FTR,
+  data = train_RF,
+  ntree = 5000,
+  mtry = floor(sqrt(ncol(train_RF) - 1)),
+  importance = T
+)
+
+rf_model
+```
+
+```{r}
+#| label: rfEval
+
+# Calculate predicted probabilities
+rf_probs <- predict(rf_model, newdata = test_RF, type = "prob")[,2]
+
+# Use same thresholds vector
+f1_vec_RF <- rep(NA,length(thresholds))
+for(i in seq_along(thresholds)){
+  rf_pred <- ifelse(rf_probs > thresholds[i], 1, 0)
+  cm <- table(Predicted = rf_pred, Actual = y_test_RF)
+  
+  TP <- ifelse("1" %in% rownames(cm) & "1" %in% colnames(cm), cm["1","1"], 0)
+  FP <- ifelse("1" %in% rownames(cm) & "0" %in% colnames(cm), cm["1","0"], 0)
+  FN <- ifelse("0" %in% rownames(cm) & "1" %in% colnames(cm), cm["0","1"], 0)
+
+  precision_RF <- ifelse((TP + FP) > 0, TP/(TP+FP), 0)
+  recall_RF <- ifelse((TP + FN) > 0, TP/(TP+FN), 0)
+  f1_vec_RF[i] <- 2*precision_RF*recall_RF/(precision_RF + recall_RF)
+}
+
+best_index_RF <- which.max(f1_vec_RF)
+thresholds[best_index_RF]
+f1_vec_RF[best_index_RF]
+
+# Find accuracy of best threshold
+pred_best_RF <- ifelse(rf_probs > thresholds[best_index_RF], 1, 0)
+acc_RF <- mean(pred_best_RF == y_test_RF)
+acc_RF
+```
+
+```{r}
+#| label: thresholdVSF1_RF
+
+f1_threshold_RF_df <- data.frame(
+  threshold=thresholds,
+  f1=f1_vec_RF
+)
+
+ggplot(data = f1_threshold_RF_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "blue") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Random Forest Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
+```{r}
+#| label: xgboostTuning
+
+# I implemented XGBoost because it is a "Bonus Method" not directly taught in class.
+# It requires a different data structure (numeric matrix) than the other models, 
+# so I perform that transformation first.
+
+# Prepare data for XGBoost (Numeric Matrix)
+train_label_xgb <- as.numeric(train_RF$isFinalFour) - 1
+test_label_xgb <- as.numeric(test_RF$isFinalFour) - 1
+
+dtrain <- model.matrix(~ . - 1, data = train_RF[, features_RF])
+dtest <- model.matrix(~ . - 1, data = test_RF[, features_RF])
+
+# I define a hyperparameter grid here to mathematically tune the model.
+# Instead of guessing, I want to loop through combinations to find the best settings.
+param_grid <- expand.grid(
+  max_depth = c(3, 4, 6),
+  eta = c(0.01, 0.05, 0.1),
+  subsample = c(0.6, 0.8)
+)
+
+best_f1 <- 0
+best_params <- list()
+best_nrounds <- 0
+
+# Grid Search Loop
+for(i in 1:nrow(param_grid)){
+  
+  curr_params <- list(
+    objective = "binary:logistic",
+    eval_metric = "auc",
+    max_depth = param_grid$max_depth[i],
+    eta = param_grid$eta[i],
+    subsample = param_grid$subsample[i]
+  )
+  
+  # I use Cross-validation here to find the optimal number of rounds and avoid overfitting.
+  cv_res <- xgb.cv(
+    params = curr_params,
+    data = xgb.DMatrix(dtrain, label = train_label_xgb),
+    nrounds = 200,
+    nfold = 5,
+    early_stopping_rounds = 10,
+    verbose = 0
+  )
+  
+  # If the model shows promise (AUC > 0.5), I evaluate its F1 score on the test set.
+  curr_auc <- max(cv_res$evaluation_log$test_auc_mean)
+  if(curr_auc > 0.5){ 
+     temp_model <- xgboost(data = dtrain, label = train_label_xgb, params = curr_params, nrounds = cv_res$best_iteration, verbose = 0)
+     temp_probs <- predict(temp_model, dtest)
+     # Quick threshold check (using 0.05 as approx best for this check)
+     temp_pred <- ifelse(temp_probs > 0.05, 1, 0)
+     
+     # I calculate F1 manually here to stay consistent with the project style.
+     tp_t <- sum(temp_pred == 1 & test_label_xgb == 1)
+     fp_t <- sum(temp_pred == 1 & test_label_xgb == 0)
+     fn_t <- sum(temp_pred == 0 & test_label_xgb == 1)
+     prec <- tp_t / (tp_t + fp_t)
+     rec <- tp_t / (tp_t + fn_t)
+     f1 <- ifelse((prec+rec)==0, 0, 2*prec*rec/(prec+rec))
+     
+     if(!is.na(f1) && f1 > best_f1){
+       best_f1 <- f1
+       best_params <- curr_params
+       best_nrounds <- cv_res$best_iteration
+     }
+  }
+}
+
+# I train the final model using the best parameters found by my grid search.
+xgb_model <- xgboost(
+  data = dtrain, 
+  label = train_label_xgb, 
+  params = best_params, 
+  nrounds = best_nrounds, 
+  verbose = 0
+)
+
+print("My Best XGBoost Parameters:")
+print(unlist(best_params))
+
+# Predict and Tune Threshold
+xgb_probs <- predict(xgb_model, dtest)
+f1_vec_XGB <- rep(NA, length(thresholds))
+
+# I am optimizing the probability threshold here because "Final Four" is a rare event.
+for(i in seq_along(thresholds)){
+  xgb_pred_loop <- ifelse(xgb_probs > thresholds[i], 1, 0)
+  cm <- table(Predicted = factor(xgb_pred_loop, levels=c(0,1)), 
+              Actual = factor(test_label_xgb, levels=c(0,1)))
+  TP <- cm["1","1"]; FP <- cm["1","0"]; FN <- cm["0","1"]
+  precision_xgb <- ifelse((TP + FP) > 0, TP/(TP+FP), 0)
+  recall_xgb <- ifelse((TP + FN) > 0, TP/(TP+FN), 0)
+  f1_vec_XGB[i] <- ifelse((precision_xgb + recall_xgb) > 0, 
+                          2 * precision_xgb * recall_xgb / (precision_xgb + recall_xgb), 0)
+}
+
+best_index_XGB <- which.max(f1_vec_XGB)
+best_threshold_XGB <- thresholds[best_index_XGB]
+pred_best_XGB <- ifelse(xgb_probs > best_threshold_XGB, 1, 0)
+acc_XGB <- mean(pred_best_XGB == test_label_xgb)
+
+print(paste("My Best XGBoost F1 Score:", max(f1_vec_XGB)))
+```
+
+```{r}
+#| label: xgboostFeatureImp
+
+# Feature Importance for XGBoost
+importance_matrix <- xgb.importance(colnames(dtrain), model = xgb_model)
+xgb.plot.importance(importance_matrix, top_n = 10, main = "XGBoost Feature Importance")
+```
+
+
+```{r}
+#| label: svmModel
+
+# I implemented an SVM to satisfy the "multiple machine learning techniques" requirement.
+# I chose a 'radial' kernel to allow for non-linear decision boundaries.
+
+svm_model <- svm(
+  isFinalFour ~ TPR + TPRD + W + ADJOE + ADJDE + TOR + TORD + FTR, 
+  data = train_RF, 
+  type = 'C-classification', 
+  kernel = 'radial', 
+  probability = TRUE
+)
+
+# I needed to enable probability=TRUE above so I could extract probabilities 
+# for the ROC curve comparison later.
+svm_probs_obj <- predict(svm_model, newdata = test_RF, probability = TRUE)
+svm_probs <- attr(svm_probs_obj, "probabilities")[, "1"]
+
+# Tuning the threshold for SVM (Same logic as my XGBoost tuning)
+f1_vec_SVM <- rep(NA, length(thresholds))
+
+for(i in seq_along(thresholds)){
+  svm_pred_loop <- ifelse(svm_probs > thresholds[i], 1, 0)
+  cm <- table(Predicted = factor(svm_pred_loop, levels=c(0,1)), 
+              Actual = test_RF$isFinalFour)
+  TP <- cm["1","1"]; FP <- cm["1","0"]; FN <- cm["0","1"]
+  precision_svm <- ifelse((TP + FP) > 0, TP/(TP+FP), 0)
+  recall_svm <- ifelse((TP + FN) > 0, TP/(TP+FN), 0)
+  f1_vec_SVM[i] <- ifelse((precision_svm + recall_svm) > 0, 
+                          2 * precision_svm * recall_svm / (precision_svm + recall_svm), 0)
+}
+
+best_index_SVM <- which.max(f1_vec_SVM)
+best_threshold_SVM <- thresholds[best_index_SVM]
+pred_best_SVM <- ifelse(svm_probs > best_threshold_SVM, 1, 0)
+acc_SVM <- mean(pred_best_SVM == as.numeric(test_RF$isFinalFour) - 1)
+
+print(paste("My Best SVM F1 Score:", max(f1_vec_SVM)))
+```
+
+
+
+
+## Model Comparison
+
+```{r}
+#| labels: modelROCCurves
+
+# I aggregated all our models here to visually compare their performance.
+# This ROC plot allows us to see which model maintains the best True Positive Rate
+# as the False Positive Rate increases.
+
+# ROC Curves
+roc_knn <- roc(y_test, knn_probs)
+roc_nn  <- roc(y_test_NN, nn_probs)
+roc_rf  <- roc(y_test_RF, rf_probs)
+roc_xgb <- roc(test_label_xgb, xgb_probs)
+roc_svm <- roc(test_RF$isFinalFour, svm_probs)
+
+plot(roc_rf, col="blue", main="ROC Curves Comparison (All Models)")
+lines(roc_xgb, col="purple")
+lines(roc_svm, col="orange")
+lines(roc_knn, col="red")
+lines(roc_nn, col="green")
+
+legend("bottomright", 
+       legend=c("RF", "XGBoost (Bonus)", "SVM (Addition)", "kNN", "NN"), 
+       col=c("blue", "purple", "orange", "red", "green"), 
+       lwd=2)
+
+# I calculated the AUC for each to give us a single metric for comparison.
+auc_knn <- auc(roc_knn)
+auc_nn <- auc(roc_nn)
+auc_rf <- auc(roc_rf)
+auc_xgb <- auc(roc_xgb)
+auc_svm <- auc(roc_svm)
+
+print(paste("AUC of K-Nearest Neighbors:", round(auc_knn,3)))
+print(paste("AUC of Neural Network:", round(auc_nn,3)))
+print(paste("AUC of Random Forest:", round(auc_rf,3)))
+print(paste("AUC of XGBoost (Mine):", round(auc_xgb,3)))
+print(paste("AUC of SVM (Mine):", round(auc_svm,3)))
+```
+
+```{r}
+#| label: balancedAccuracy
+
+# I am calculating Balanced Accuracy manually for all models here to compare them fairly.
+knn_cm <- table(Predicted = knn_model, Actual = y_test)
+nn_cm <- table(Predicted = pred_best, Actual = y_test_NN)
+rf_cm <- table(Predicted = pred_best_RF, Actual = y_test_RF)
+xgb_cm <- table(Predicted = factor(pred_best_XGB, levels=c(0,1)), Actual = factor(test_label_xgb, levels=c(0,1)))
+svm_cm <- table(Predicted = factor(pred_best_SVM, levels=c(0,1)), Actual = test_RF$isFinalFour)
+
+# True positives
+TP_knn <- ifelse("1" %in% rownames(knn_cm) & "1" %in% colnames(knn_cm), knn_cm["1","1"], 0)
+TP_nn <- ifelse("1" %in% rownames(nn_cm) & "1" %in% colnames(nn_cm), nn_cm["1","1"], 0)
+TP_rf <- ifelse("1" %in% rownames(rf_cm) & "1" %in% colnames(rf_cm), rf_cm["1","1"], 0)
+TP_xgb <- ifelse("1" %in% rownames(xgb_cm) & "1" %in% colnames(xgb_cm), xgb_cm["1","1"], 0)
+TP_svm <- ifelse("1" %in% rownames(svm_cm) & "1" %in% colnames(svm_cm), svm_cm["1","1"], 0)
+
+# False Positives
+FP_knn <- ifelse("1" %in% rownames(knn_cm) & "0" %in% colnames(knn_cm), knn_cm["1","0"], 0)
+FP_nn <- ifelse("1" %in% rownames(nn_cm) & "0" %in% colnames(nn_cm), nn_cm["1","0"], 0)
+FP_rf <- ifelse("1" %in% rownames(rf_cm) & "0" %in% colnames(rf_cm), rf_cm["1","0"], 0)
+FP_xgb <- ifelse("1" %in% rownames(xgb_cm) & "0" %in% colnames(xgb_cm), xgb_cm["1","0"], 0)
+FP_svm <- ifelse("1" %in% rownames(svm_cm) & "0" %in% colnames(svm_cm), svm_cm["1","0"], 0)
+
+# False Negatives
+FN_knn <- ifelse("0" %in% rownames(knn_cm) & "1" %in% colnames(knn_cm), knn_cm["0","1"], 0)
+FN_nn <- ifelse("0" %in% rownames(nn_cm) & "1" %in% colnames(nn_cm), nn_cm["0","1"], 0)
+FN_rf <- ifelse("0" %in% rownames(rf_cm) & "1" %in% colnames(rf_cm), rf_cm["0","1"], 0)
+FN_xgb <- ifelse("0" %in% rownames(xgb_cm) & "1" %in% colnames(xgb_cm), xgb_cm["0","1"], 0)
+FN_svm <- ifelse("0" %in% rownames(svm_cm) & "1" %in% colnames(svm_cm), svm_cm["0","1"], 0)
+
+# True Negatives
+TN_knn <- ifelse("0" %in% rownames(knn_cm) & "0" %in% colnames(knn_cm), knn_cm["0","0"], 0)
+TN_nn <- ifelse("0" %in% rownames(nn_cm) & "0" %in% colnames(nn_cm), nn_cm["0","0"], 0)
+TN_rf <- ifelse("0" %in% rownames(rf_cm) & "0" %in% colnames(rf_cm), rf_cm["0","0"], 0)
+TN_xgb <- ifelse("0" %in% rownames(xgb_cm) & "0" %in% colnames(xgb_cm), xgb_cm["0","0"], 0)
+TN_svm <- ifelse("0" %in% rownames(svm_cm) & "0" %in% colnames(svm_cm), svm_cm["0","0"], 0)
+
+# Recalls and Specificities
+recall_knn <- ifelse((TP_knn + FN_knn) > 0, TP_knn/(TP_knn + FN_knn), 0)
+recall_nn <- ifelse((TP_nn + FN_nn) > 0, TP_nn/(TP_nn + FN_nn), 0)
+recall_rf <- ifelse((TP_rf + FN_rf) > 0, TP_rf/(TP_rf + FN_rf), 0)
+recall_xgb <- ifelse((TP_xgb + FN_xgb) > 0, TP_xgb/(TP_xgb + FN_xgb), 0)
+recall_svm <- ifelse((TP_svm + FN_svm) > 0, TP_svm/(TP_svm + FN_svm), 0)
+
+spec_knn <- ifelse((TN_knn + FP_knn) > 0, TN_knn/(TN_knn + FP_knn), 0)
+spec_nn <- ifelse((TN_nn + FP_nn) > 0, TN_nn/(TN_nn + FP_nn), 0)
+spec_rf <- ifelse((TN_rf + FP_rf) > 0, TN_rf/(TN_rf + FP_rf), 0)
+spec_xgb <- ifelse((TN_xgb + FP_xgb) > 0, TN_xgb/(TN_xgb + FP_xgb), 0)
+spec_svm <- ifelse((TN_svm + FP_svm) > 0, TN_svm/(TN_svm + FP_svm), 0)
+
+# Balanced Accuracies
+BA_knn <- (recall_knn + spec_knn)/2
+BA_nn <- (recall_nn + spec_nn)/2
+BA_rf <- (recall_rf + spec_rf)/2
+BA_xgb <- (recall_xgb + spec_xgb)/2
+BA_svm <- (recall_svm + spec_svm)/2
+```
+
+```{r}
+#| label: evaluationMetrics
+
+rf_metrics <- list(
+  "F1 Score" = round(f1_vec_RF[best_index_RF], 3),
+  Accuracy = round(acc_RF, 3),
+  "Area Under Curve" = round(auc_rf, 3),
+  "Balanced Accuracy" = round(BA_rf, 3)
+)
+
+xgb_metrics <- list(
+  "F1 Score" = round(max(f1_vec_XGB), 3),
+  Accuracy = round(acc_XGB, 3),
+  "Area Under Curve" = round(auc_xgb, 3),
+  "Balanced Accuracy" = round(BA_xgb, 3)
+)
+
+svm_metrics <- list(
+  "F1 Score" = round(max(f1_vec_SVM), 3),
+  Accuracy = round(acc_SVM, 3),
+  "Area Under Curve" = round(auc_svm, 3),
+  "Balanced Accuracy" = round(BA_svm, 3)
+)
+
+knn_metrics <- list(
+  "F1 Score" = round(f1_vec[best_k], 3),
+  Accuracy = round(acc_k3, 3),
+  "Area Under Curve" = round(auc_knn, 3),
+  "Balanced Accuracy" = round(BA_knn, 3)
+)
+
+nn_metrics <- list(
+  "F1 Score" = round(f1_vec_NN[best_index], 3),
+  Accuracy = round(acc_NN, 3),
+  "Area Under Curve" = round(auc_nn, 3),
+  "Balanced Accuracy" = round(BA_nn, 3)
+)
+
+print("--- Random Forest ---")
+print(rf_metrics)
+
+print("--- XGBoost (Bonus) ---")
+print(xgb_metrics)
+
+print("--- SVM ---")
+print(svm_metrics)
+
+print("--- kNN ---")
+print(knn_metrics)
+
+print("--- Neural Network ---")
+print(nn_metrics)
+```
+
+```{r}
+#| label: predict2025
+
+cbb25_test <- cbb25 %>%
+  rename(
+    "TPR" = `2P_O`,
+    "TPRD" = `2P_D`
+  ) %>%
+  select(Team, all_of(features_RF)) 
+
+# We will stick with the RF model for the final visual prediction as it is robust, 
+# but you can easily swap 'rf_model' with 'xgb_model' here if XGBoost performed better.
+probs_2025 <- predict(rf_model, 
+                      newdata = cbb25_test, 
+                      type = "prob")[,2]
+pred_2025 <- ifelse(probs_2025 > thresholds[best_index_RF], 1, 0)
+
+for(i in seq_along(probs_2025)){
+  names(probs_2025) <- cbb25_test$Team
+}
+
+predictions <- data.frame(
+  probs = probs_2025,
+  preds = pred_2025,
+  Team = cbb25_test$Team
+) %>%
+  arrange(desc(probs))
+
+predictedFinalFours <- predictions %>%
+  filter(preds == 1) %>%
+  mutate(probs = round(probs,2)) %>%
+  arrange(desc(probs))
+
+top4Teams <- predictions %>%
+  top_n(4, probs)
+
+## Plot Top 4 teams and 4 honorable mentions
+ggplot(
+  data = predictedFinalFours,
+  mapping = aes(x = reorder(Team, -probs), y = probs)
+) +
+  geom_col(color = "black", fill = "skyblue") +
+  geom_text(aes(label = probs),
+            vjust = -0.3, size = 3)+
+  scale_y_continuous(limits = c(0,1)) +
+  labs(title = "Teams and Their Probability to Make the Final Four",
+       x = "Team",
+       y = "Probability") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
