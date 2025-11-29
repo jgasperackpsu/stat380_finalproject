@@ -2,7 +2,7 @@
 ## By Jackson Gasperack and Sawan Pandita
 
 <br>
-This repository is exploring different staistics of Men's Basketball Division I teams from the years 2013 to 2025. The data files include information on 12 individual years of statistics and how the teams panned out for those years. There is a larger datatset that includes all teams from all years and those statistics as well, just a binded version of all the individual files.
+This repository is exploring different statistics of Men's Basketball Division I teams from the years 2013 to 2025. The data files include information on 12 individual years of statistics and how the teams panned out for those years. There is a larger datatset that includes all teams from all years and those statistics as well, just a binded version of all the individual files.
 <br>
 
 ## Overview
