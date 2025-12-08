@@ -4,8 +4,12 @@ author: "Jackson Gasperack & Sawan Pandita"
 date: "2025-12-06"
 format:
   pdf:
+    number-sections: true
+    embed-resources: true
     toc: true
+    geometry: margin = 1in
     csl: apa7.csl
+    appendix: true
 editor: 
   markdown: 
     wrap: 72
@@ -38,6 +42,7 @@ library(PRROC)
 library(xgboost) 
 library(Matrix)
 library(e1071)
+library(kableExtra)
 ```
 
 # Introduction
@@ -245,7 +250,7 @@ k-Nearest x-values like the previous model did. In this case we fit a
 model of size 5 with 1000 iterations and entropy to predict the best
 possible Final Four combination. After going through thresholds from
 0.001 to 0.15 we found the threshold of around 0.13 to maximize F1 with
-a score of 0.35 which is considered good in a scenario like this when
+a score of 0.45 which is considered great in a scenario like this when
 the predicted class is so uncertain. This model still posted a great
 accuracy of 97.4% and identified the positive class three times better
 than kNN. It’s also worth noting that the neural network model does have
@@ -277,8 +282,8 @@ for loop go through the previously stated thresholds. We fit a random
 forest model of 5000 trees which had a 1% OOB estimate of error rate.
 After going through these thresholds we found that a threshold of around
 0.14 maximized the F1 score for this model. We were able to achieve a F1
-score of 0.37 along with an accuracy of around 97% which improves on our
-neural network in F1 while maintaining the high accuracy. We also saw
+score of 0.37 along with an accuracy of around 97% which regresses from our
+neural network solely in F1 while maintaining the high accuracy. We also saw
 that the F1 score kept increasing past 0.15 so we tried to increase the
 threshold up to 0.3. However when we did that we realized that even
 though F1 scores kept increasing, less and less teams were counted as
@@ -302,9 +307,131 @@ ggplot(data = f1_threshold_RF_df, mapping = aes(x = threshold, y = f1)) +
 
 ## SVM
 
+For the Support Vector Machine, I utilized the e1071 package to create a
+non-linear classification model. I specifically chose the radial basis
+function (RBF) kernel because the relationship between basketball
+statistics and winning is rarely linear. Similar to the other models, I
+enabled probability generation to allow for ROC curve analysis later.
+After training the model on our selected features, I tuned the decision
+threshold to maximize the F1 score. Interestingly, the SVM model
+produced the highest F1 score of the entire project at 0.769 with an
+accuracy of 99.5%. While these numbers look incredible on paper, the
+Area Under the Curve (AUC) was 0.772, which is significantly lower than
+the tree-based models (Random Forest and XGBoost). This discrepancy
+suggests that while the SVM found a very specific decision boundary that
+worked well for the test set’s positive cases, it might not be as robust
+globally as the gradient boosting methods.
+
+```{r}
+#| label: SVM_F1
+ggplot(data = f1_threshold_SVM_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "orange") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Support Vector Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
 ## XGBoost
 
+I implemented XGBoost (Extreme Gradient Boosting) as a bonus method
+because it is widely considered the industry standard for tabular
+classification problems. Unlike Random Forest, which builds trees
+independently, XGBoost builds trees sequentially to correct the errors
+of previous trees. I performed a grid search to tune the
+hyperparameters, resulting in a max_depth of 3, an eta (learning rate)
+of 0.1, and a subsample of 0.6. Keeping the tree depth shallow (3)
+helped prevent overfitting, which is a common risk with this dataset
+given the class imbalance. The model achieved the highest AUC of all our
+models at 0.958 and a strong F1 score of 0.4. As seen in the Feature
+Importance plot, the model heavily favored Wins (W) and Adjusted
+Offensive Efficiency (ADJOE), confirming that in modern college
+basketball, elite offense is a stronger predictor of deep tournament
+runs than defense.
+
+```{r}
+#| label: XGB_F1
+ggplot(data = f1_threshold_XGB_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "purple") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Gradient Boosting Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
 # Results
+
+To definitively compare our five models, we plotted their Receiver
+Operating Characteristic (ROC) curves on a single graph. The ROC curve
+illustrates how well the model separates positive classes (Final Four
+teams) from negative classes.
+
+```{r}
+#| label: rocCurves
+plot(roc_rf, col="blue", main="ROC Curves Comparison (All Models)")
+lines(roc_xgb, col="purple")
+lines(roc_svm, col="orange")
+lines(roc_knn, col="red")
+lines(roc_nn, col="green")
+
+legend("bottomright", 
+       legend=c(
+         paste0("RF (AUC = ", round(auc_rf, 3), ")"),
+         paste0("XGBoost (AUC = ", round(auc_xgb, 3), ")"),
+         paste0("SVM (AUC = ", round(auc_svm, 3), ")"),
+         paste0("kNN (AUC = ", round(auc_knn, 3), ")"),
+         paste0("NN (AUC = ", round(auc_nn, 3), ")")
+       ), 
+       col=c("blue", "purple", "orange", "red", "green"), 
+       lwd=2,
+       cex = 0.6)
+```
+
+-   **XGBoost (Purple Line)**: Performed the best with an AUC of
+    *0.963*, hugging the top-left corner the tightest.
+-   **Random Forest (Blue Line)**: A close second with an AUC of
+    *0.939*.
+-   **Neural Network (Green Line)**: Performed well with an AUC of
+    *0.772*.
+-   **SVM (Orange Line)**: Showed a "blocky" step function with an AUC
+    of *0.772*, indicating less granular probability estimates.
+-   **kNN (Red Line)**: Performed poorly, falling below the diagonal
+    line with an AUC of *0.339* which performs worse than random
+    guessing of 0.5.
+
+```{r}
+#| tbl-cap: "Metrics Computed for Each Model"
+#| label: metricDF
+metrics_df <- as.data.frame(
+  do.call(rbind, 
+          lapply(list(rf_metrics,xgb_metrics,svm_metrics,nn_metrics,knn_metrics),
+                 unlist))
+) %>%
+  mutate(Model = c("Random Forest","Gradient Boosting","Support Vector Machine",
+                   "Neural Network","k-Nearest Neighbors"))
+
+metrics <- metrics_df %>%
+  kable("latex",
+        booktabs = TRUE,
+        escape = FALSE,
+        float = FALSE) %>%
+  kable_styling(latex_options = c("striped","scale_down"))
+
+metrics
+```
+
+While SVM had the highest raw F1, we believe XGBoost is the superior
+model due to its high AUC and consistent probabilities.
 
 # Conclusion
 
@@ -388,6 +515,22 @@ ggplot(
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
+My XGBoost model actually predicted the exact same top four teams as
+Jackson’s Random Forest model: Houston, Florida, Duke, and Alabama.
+However, my model was much more confident in its top pick, giving
+Houston an 80% probability of making the Final Four compared to the
+Random Forest's 55%. Auburn was also the fifth most likely team in my
+model, meaning both models were good at successfully determining elite
+contenders. Just like Jackson's model, mine struggled with upsets, as
+Missouri and St. John's were included in this model as well despite
+losing in the first two rounds. My model also identified a new potential
+Final Four contender in Arizona. With Arizona also making the Sweet 16
+this just goes on to show how this model is good at predicting top-tier
+competitors. Since the predictions were so similar to the Random Forest
+model, it confirms that these teams were the statistical favorites, even
+if the actual tournament results were different due to upsets or the
+unpredictability of the tournament itself.
+
 ## Dataset Conclusions
 
 After fully completing model construction and analysis, we found that
@@ -431,7 +574,7 @@ https://www.ncaa.com/basketball-men/d1/every-ncaa-bracket-1939-today-
 ```{r}
 #| label: packageCitations
 #| warning: false
-packages <- c("tidyverse","ggplot2","caret","glmnet","randomForest","FNN","pROC","nnet","PRROC","xgboost","Matrix","e1071")
+packages <- c("tidyverse","ggplot2","caret","glmnet","randomForest","FNN","pROC","nnet","PRROC","xgboost","Matrix","e1071","kableExtra")
 
 citings <- rep(NA, length(packages))
 
@@ -452,4 +595,3 @@ for (i in seq_along(packages)){
   cat("\n\n")
 }
 ```
-
