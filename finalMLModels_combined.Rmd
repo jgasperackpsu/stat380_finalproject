@@ -505,6 +505,25 @@ importance_matrix <- xgb.importance(colnames(dtrain), model = xgb_model)
 xgb.plot.importance(importance_matrix, top_n = 10, main = "XGBoost Feature Importance")
 ```
 
+```{r}
+#| label: XGB_F1
+f1_threshold_XGB_df <- data.frame(
+  threshold=thresholds,
+  f1=f1_vec_XGB
+)
+
+ggplot(data = f1_threshold_XGB_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "purple") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Gradient Boosting Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
 
 ```{r}
 #| label: svmModel
@@ -547,7 +566,25 @@ acc_SVM <- mean(pred_best_SVM == as.numeric(test_RF$isFinalFour) - 1)
 print(paste("My Best SVM F1 Score:", max(f1_vec_SVM)))
 ```
 
+```{r}
+#| label: SVM_F1
+f1_threshold_SVM_df <- data.frame(
+  threshold=thresholds,
+  f1=f1_vec_SVM
+)
 
+ggplot(data = f1_threshold_SVM_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "orange") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Support Vector Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
 
 
 ## Model Comparison
@@ -719,35 +756,48 @@ cbb25_test <- cbb25 %>%
 # better
 xgb_test_25 <- model.matrix(~ . - 1, data = cbb25_test[, features_RF])
 
-probs_2025 <- predict(xgb_model, newdata = xgb_test_25)
-pred_2025 <- ifelse(probs_2025 > thresholds[best_index_RF], 1, 0)
+probs_2025_xgb <- predict(xgb_model, newdata = xgb_test_25)
+pred_2025_xgb <- ifelse(probs_2025_xgb > thresholds[best_index_XGB], 1, 0)
 
 ## RANDOMFOREST PREDS
-#probs_2025 <- predict(rf_model, newdata = cbb25_test, type = "prob")[,2]
-#pred_2025 <- ifelse(probs_2025 > thresholds[best_index_RF], 1, 0)
+probs_2025_rf <- predict(rf_model, newdata = cbb25_test, type = "prob")[,2]
+pred_2025_rf <- ifelse(probs_2025_rf > thresholds[best_index_RF], 1, 0)
 
 for(i in seq_along(probs_2025)){
-  names(probs_2025) <- cbb25_test$Team
+  names(probs_2025_xgb) <- cbb25_test$Team
 }
 
-predictions <- data.frame(
-  probs = probs_2025,
-  preds = pred_2025,
+for(i in seq_along(probs_2025)){
+  names(probs_2025_rf) <- cbb25_test$Team
+}
+
+predictions_xgb <- data.frame(
+  probs = probs_2025_xgb,
+  preds = pred_2025_xgb,
   Team = cbb25_test$Team
 ) %>%
   arrange(desc(probs))
 
-predictedFinalFours <- predictions %>%
+predictions_rf <- data.frame(
+  probs = probs_2025_rf,
+  preds = pred_2025_rf,
+  Team = cbb25_test$Team
+) %>%
+  arrange(desc(probs))
+
+predictedFinalFours_xgb <- predictions_xgb %>%
   filter(preds == 1) %>%
   mutate(probs = round(probs,2)) %>%
   arrange(desc(probs))
 
-top4Teams <- predictions %>%
-  top_n(4, probs)
+predictedFinalFours_rf <- predictions_rf %>%
+  filter(preds == 1) %>%
+  mutate(probs = round(probs,2)) %>%
+  arrange(desc(probs))
 
 ## Plot Top 4 teams and 4 honorable mentions
 ggplot(
-  data = predictedFinalFours,
+  data = predictedFinalFours_xgb,
   mapping = aes(x = reorder(Team, -probs), y = probs)
 ) +
   geom_col(color = "black", fill = "skyblue") +
@@ -755,12 +805,35 @@ ggplot(
             vjust = -0.3, size = 3)+
   scale_y_continuous(limits = c(0,1)) +
   labs(title = "Teams and Their Probability to Make the Final Four",
+       subtitle = "XGBoost Model",
        x = "Team",
        y = "Probability") +
   theme_bw() +
   theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+
+ggplot(
+  data = predictedFinalFours_rf,
+  mapping = aes(x = reorder(Team, -probs), y = probs)
+) +
+  geom_col(color = "black", fill = "skyblue") +
+  geom_text(aes(label = probs),
+            vjust = -0.3, size = 3)+
+  scale_y_continuous(limits = c(0,1)) +
+  labs(title = "Teams and Their Probability to Make the Final Four",
+       subtitle = "RandomForest Model",
+       x = "Team",
+       y = "Probability") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(face = "bold", hjust = 0.5),
         axis.title = element_text(face = "bold"),
         axis.text.x = element_text(angle = 45, hjust = 1))
 ```
 
 
+```{r}
+save.image(file = "Models.RData")
+```

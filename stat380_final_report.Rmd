@@ -1,0 +1,661 @@
+---
+title: "March Madness Predictions"
+author: "Jackson Gasperack & Sawan Pandita"
+date: "2025-12-06"
+format:
+  pdf:
+    number-sections: true
+    embed-resources: true
+    toc: true
+    geometry: margin = 1in
+    csl: apa7.csl
+    appendix: true
+editor: 
+  markdown: 
+    wrap: 72
+---
+
+```{r}
+#| label: loadData
+#| include: false
+load(file = "Models.RData")
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+#| label: libraries
+#| include: false
+# Add Libraries
+library(tidyverse)
+library(ggplot2)
+library(stringr)
+library(caret)
+library(glmnet)
+library(randomForest)
+library(FNN)
+library(pROC)
+library(nnet)
+library(PRROC)
+library(xgboost) 
+library(Matrix)
+library(e1071)
+library(kableExtra)
+```
+
+# Introduction
+
+## Motivation
+
+Every year, millions of people fill out their bracket in hopes of being
+the person that correctly predicts the winner of that year’s Men's Basketball
+National Championship. However, it is nearly impossible to do this, the
+odds for predicting the first round correctly is 1 to 3500 on its own.
+The odds for filling out an entire perfect bracket are 1 to 2.9
+quintillion assuming each team has a 50/50 chance of winning or losing.
+That's not the case however, as statistics, seedings, and rosters
+influence how people choose which team will win each game. But, even
+with more robust models, like FiveThirtyEight's mentioned in their
+article, the odds are still a staggering 1 in 2 billion (Paine & Voice,
+2017). It is so unpredictable to pick a single winner that we even had
+to modify our research question since our models began to underfit. To
+make this unpredictable choice a little more clear we wanted to create a
+model that could predict which teams would be most likely to make the
+Final Four.
+
+## Dataset Description
+
+We imported Lundberg's dataset, College Basketball Dataset, from Kaggle.
+This notebook is comprised of 13 csv files, one for each year from
+2013-2025 March Madness, and one main file that ranges all the years. In
+each separate year file, the variables comprised of the following for
+the season that lead up to that postseason:\newline \newline - **TEAM**:
+School name\newline - **CONF**: Division I Conference school is apart
+of\newline - **G**: Games played\newline - **W**: Games won\newline -
+**ADJOE**: Adjusted Offensive Efficiency (Pts/100 possessions)\newline -
+**ADJDE**: Adjusted Defensive Efficiency (Pts allowed/100
+possessions)\newline \_ **BARTHAG**: Power rating (Chance of beating D1
+team)\newline - **EFG_O**: Effective FG percentage\newline - **EFG_D**:
+Effective FG percentage allowed\newline - **TOR**: Turnover
+rate\newline - **TORD**: Turnover rate allowed (Steal rate)\newline -
+**ORB**: Offensive rebound rate\newline - **DRB**: Offensive rebound
+rate allowed\newline - **FTR**: Free throw percentage\newline -
+**FTRD**: Free throw percentage allowed\newline - **2P_O**: Two-point FG
+percentage\newline - **2P_D**: Two-point FG percentage allowed\newline -
+**3P_O**: Three-point FG percentage\newline - **3P_D**: Three-point FG
+percentage allowed\newline - **ADJ_T**: Adjusted tempo (possessions/40
+mins)\newline - **WAB**: Wins above bubble (Wins after the March Madness
+qualification cutoff)\newline - **POSTSEASON**: Postseason round of
+elimination\newline - **SEED**: Seed in March Madness\newline
+
+In the 2025 dataset, 3PR and 3PRD were added, they weren't specified in
+the data card but I assumed it was just 3P_O and 3P_D with different
+names that the creator accidentally added. RK in the 2020 dataset is the
+ranking of the teams from where the data was originally scraped, since
+there was not a postseason in 2020 due to COVID. Finally, in the large
+dataset the year of each row was also added since it's the accumulation
+of all the separate year datasets.
+
+# Data Analysis
+
+## Data Cleaning
+
+After we loaded our dataset into the R environment, there were several
+steps that we needed to take before constructing our models. The first
+thing we did was make sure all types of all tables were corresponding to
+each other, for example the seed columns of some datasets were character
+types instead of numeric. Then we printed the structure with the
+function str() to see what type of variables we were dealing with. After
+getting a good idea of the data we were dealing with we then wanted to
+check for how many unique values were in each column to establish
+categories. We found that there were no null values in terms of
+statistics, which in our case meant we didn’t need to worry about them
+because we’d be using statistics to predict our outcome. When looking
+through the 13 datasets, we wanted to make sure all variables were
+consistent. Since 2020 didn’t have a postseason because of COVID and
+this dataset was made before the 2025 postseason, those two datasets
+should have one less variable than the rest. We also renamed some
+variables and removed other unnecessary ones. The 2025 dataset had a
+rank column and a seed column which seemed redundant, it also had two
+additional statistics included that weren’t in any other dataset, so we
+removed those. After this process we moved onto finding relationships
+between our variables.
+
+## Distributions and Correlations
+
+To start, we separated our offensive and defensive statistics in order
+to view their distributions separately. We then made a list
+corresponding these statistics’ variable names to their nicer formatted
+names. After finding the average of the statistics of all teams since
+2013, we were finally ready to plot our distributions. When finishing
+this process for both sides of the ball, we found that all of our
+variables were normally distributed for the most part. As an example,
+here's the distribution of the two-point FG rate variable.
+
+```{r}
+#| label: distPlot
+#| warning: false
+ggplot(data = stats_since2013, mapping = aes(x = `2P_O`)) +
+    geom_histogram(fill = "lightblue", color = "black") +
+    labs(title = paste("Distribution of",nice_names["2P_O"]),
+         x = nice_names["2P_O"],
+         y = "Count") +
+    theme_minimal() +
+    theme(plot.title = element_text(face = "bold", hjust = 0.5),
+          axis.title = element_text(face = "bold"))
+```
+
+After finding distributions we wanted to see how our variables
+interacted with each other. With our research question looking to
+predict which teams will make the final four, we wanted to see how
+seedings and postseason results would correlate with offensive and
+defensive efficiency metrics. After making a table of the offensive and
+defensive efficiencies for each seeded team in a given year, we wanted
+to check the counts to ensure consistency. When doing this however, we
+were met with an error as some seeds had too many and some had not
+enough since there should be four of each. We realized that this was
+because of the play-in teams where eight teams of low seedings play in
+games before the actual tournament in order to qualify. So with some
+research, we found which teams lost in the play-in games and set their
+seed as -1. We also found that some teams were just incorrectly seeded
+on accident so we fixed those as well. After completing that we plotted
+how efficiency metrics are affected by the seeding of the team, which
+shows that lower seeds are better defensively whereas higher seeds are
+better offensively.
+
+```{r}
+#| label: seedPlot
+#| warning: false
+ggplot(
+  data = best_and_worst,
+  mapping = aes(x = ADJOE, y = ADJDE, color = factor(SEED))
+) +
+  geom_point(alpha = 0.75, size = 3) +
+  geom_smooth(linewidth = .8, color = "skyblue", se = FALSE) +
+  labs(title = "Offensive vs. Defensive Efficiency by Seeding",
+       x = "Offensive Efficiency",
+       y = "Defensive Efficiency",
+       color = "Seeding") +
+  scale_color_manual(values = c("1" = "lightgreen", "2" = "green", "3" = "greenyellow",
+                    "4" = "yellow", "13" = "orange", "14" = "orangered", "15" = "red",
+                    "16" = "darkred")) +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold", hjust = 0.5))
+```
+
+This makes sense as basketball has turned very offensive in the last
+decade. In the 2010’s, offensive production was 50% more important
+towards winning games than defensive production (Wilco, 2018). With the
+game, in general, only becoming more centered around three-point
+shooting we can assume this trend is either the same or has only
+increased more since 2018. We then took every other statistic and found
+their correlation to adjusted efficiency for offense and defense. The
+highest indicators were effective field goal rate and two-point rate.
+Finally, we grouped all teams by their postseason result and averaged
+the offensive and defensive efficiencies for each seed across all years.
+This showed the same trend as the last plot. The early round exits are
+better defensive performers but the final eight teams usually have
+better offensive performance.
+
+```{r}
+#| label: postseasonPlot
+#| warning: false
+ggplot(
+  data = postseasonRanks,
+  mapping = aes(x = ADJOE, y = ADJDE, color = POSTSEASON)
+) + 
+  geom_point(alpha = 0.75, size = 3.5) +
+  geom_smooth(linewidth = .8, color = "steelblue", se = FALSE) +
+  labs(title = "Offensive vs. Defensive Efficiency by Postseason Results",
+       x = "Offensive Efficiency",
+       y = "Defensive Efficiency",
+       color = "Postseason Results") +
+  scale_color_manual(values = c("Champions" = "gold", "2ND" = "gray", "F4" ="brown",
+                                "E8" = "lightblue", "S16" = "blue","R32" = "darkblue",
+                                "R64"= "navy", "R68" = "purple"), na.value = "black") +
+  theme_minimal() +
+  theme(plot.title = element_text(face = "bold", hjust = 0),
+        axis.title = element_text(face = "bold"),
+        legend.title = element_text(face = "bold", hjust = 0.5))
+```
+
+# Feature Selection
+
+In order to choose the best set of features, we ran three different
+subset selection algorithms. First, we created a full and null model
+with isFinalFour as the target. Then, we used the step function to do
+forward selection going from the null to the full model. Secondly, we
+used another step function to do backward selection going from the full
+to the null model. Finally, we used the step function a third time to do
+stepwise selection which goes both ways. After printing their summaries,
+the forward selection model performed the best with an AIC of 209.49.
+
+```{r}
+#| label: forwardSelection
+print(summary(forward_selection))
+```
+
+After seeing the p-values, we decided to remove BARTHAG since it didn’t
+seem to contribute much. We did a plug-in method afterwards in order to
+add more features to reduce overfitting while also maintaining a
+relatively low AIC. The model we came up with actually ended up being
+better with an AIC of 209.16. So, the feature set that gave us the best
+AIC is:\newline \newline - **Wins**\newline - **Adjusted Offensive
+Efficiency**\newline - **Adjusted Defensive Efficiency**\newline -
+**Two-point rate**\newline - **Two-point rate allowed**\newline -
+**Turnover rate**\newline - **Steal rate**\newline - **Free Throw
+rate**\newline
+
+This Logistic Regression model is not included in any model evaluations
+as it performed worse than our baseline model which you will later see
+also performed poorly.
+
+# Model Construction
+
+## k-Nearest Neighbors
+
+For this model, I wanted to do two forms of resampling since it usually
+underperforms when compared to models like Neural Network and Random
+Forest. In the outer loop I did a 30-fold Cross Validation technique to
+compute the best possible F1 score. We focused on F1 score instead of
+accuracy since our success rate is a very small 1.1% which means
+accuracy will always be high and therefore can be misleading. Inside
+that loop we also did a 10-fold cross validation on our training and
+testing sets for each value of k, since kNN is not as computationally
+expensive as any of our other models. Through this rigorous approach we
+found that k = 3 maximized the F1 score of the model at around 0.123.
+Even though it had the highest accuracy with 99.2%, this model could
+only identify the positive class slightly more than 12% of the time.
+
+```{r}
+#| label: kNN_F1
+ggplot(data = f1_k_df, mapping = aes(x = k, y = f1)) +
+  geom_line() +
+  geom_point(alpha = 0.8, color = "red") +
+  labs(title = "F1 Score vs. k-Value",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "k-Value for kNN model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
+## Neural Network
+
+For the neural network we didn’t use any other resampling techniques
+than k-fold cross validation to find the threshold that produced the
+best F1 value. This is because they have many activation functions in a
+specified amount of hidden layers as opposed to just finding the
+k-Nearest x-values like the previous model did. In this case we fit a
+model of size 5 with 1000 iterations and entropy to predict the best
+possible Final Four combination. After going through thresholds from
+0.001 to 0.15 we found the threshold of around 0.13 to maximize F1 with
+a score of 0.35 which is considered good in a scenario like this when
+the predicted class is so uncertain. This model still posted a great
+accuracy of 97.4% and identified the positive class three times better
+than kNN. It’s also worth noting that the neural network model does have
+the possibility to outperform both Random Forest and XGBoost. Yet, not
+only are those performances inconsistent but it will mostly also have a
+worse F1 score than both.
+
+```{r}
+#| label: NN_F1
+
+ggplot(data = f1_threshold_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "darkgreen") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Neural Network Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
+## Random Forest
+
+For the random forest model we did the same technique that we did for
+the neural network. Due to the complexity of the model, we only had a
+for loop go through the previously stated thresholds. We fit a random
+forest model of 5000 trees which had a 1% OOB estimate of error rate.
+After going through these thresholds we found that a threshold of around
+0.15 maximized the F1 score for this model. We were able to achieve a F1
+score of 0.37 along with an accuracy of around 97% which improves on 
+the previous model's F1 score while maintaining the high accuracy. We
+also saw that the F1 score kept increasing past 0.15 so we tried to
+increase the threshold up to 0.3. However when we did that we realized
+that even though F1 scores kept increasing, less and less teams were
+counted as successes which led to limited findings. So, we decided to
+cap it at 0.15 in order to interpret our model’s predictions more
+accurately.
+
+```{r}
+#| label: RF_F1
+ggplot(data = f1_threshold_RF_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "blue") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Random Forest Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
+## SVM
+
+For the Support Vector Machine, I utilized the e1071 package to create a
+non-linear classification model. I specifically chose the radial basis
+function (RBF) kernel because the relationship between basketball
+statistics and winning is rarely linear. Similar to the other models, I
+enabled probability generation to allow for ROC curve analysis later.
+After training the model on our selected features, I tuned the decision
+threshold to maximize the F1 score. Interestingly, the SVM model
+produced the highest F1 score of the entire project at 0.769 with an
+accuracy of 99.5%. While these numbers look incredible on paper, the
+Area Under the Curve (AUC) was 0.772, which is significantly lower than
+the tree-based models (Random Forest and XGBoost). This discrepancy
+suggests that while the SVM found a very specific decision boundary that
+worked well for the test set’s positive cases, it might not be as robust
+globally as the gradient boosting methods.
+
+```{r}
+#| label: SVM_F1
+ggplot(data = f1_threshold_SVM_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "orange") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Support Vector Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
+## XGBoost
+
+I implemented XGBoost (Extreme Gradient Boosting) as a bonus method
+because it is widely considered the industry standard for tabular
+classification problems. Unlike Random Forest, which builds trees
+independently, XGBoost builds trees sequentially to correct the errors
+of previous trees. I performed a grid search to tune the
+hyperparameters, resulting in a max_depth of 3, an eta (learning rate)
+of 0.1, and a subsample of 0.6. Keeping the tree depth shallow (3)
+helped prevent overfitting, which is a common risk with this dataset
+given the class imbalance. The model achieved the highest AUC of all our
+models at 0.958 and a strong F1 score of 0.4. As seen in the Feature
+Importance plot, the model heavily favored Wins (W) and Adjusted
+Offensive Efficiency (ADJOE), confirming that in modern college
+basketball, elite offense is a stronger predictor of deep tournament
+runs than defense.
+
+```{r}
+#| label: xgboostFeatureImp
+
+# Feature Importance for XGBoost
+importance_matrix <- xgb.importance(colnames(dtrain), model = xgb_model)
+xgb.plot.importance(importance_matrix, top_n = 10, main = "XGBoost Feature Importance")
+```
+
+```{r}
+#| label: XGB_F1
+ggplot(data = f1_threshold_XGB_df, mapping = aes(x = threshold, y = f1)) +
+  geom_point(alpha = 0.8, color = "purple") +
+  labs(title = "F1 Score vs. Threshold",
+       subtitle = "F1 = (2*Recall*Precision)/(Recall + Precision)",
+       x = "Threshold for Gradient Boosting Model",
+       y = "F1 Score") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5, size = 14),
+        plot.subtitle = element_text(face = "italic", hjust = 0.5, size = 10),
+        axis.title = element_text(face = "bold")
+        )
+```
+
+# Results
+
+To definitively compare our five models, we plotted their Receiver
+Operating Characteristic (ROC) curves on a single graph. The ROC curve
+illustrates how well the model separates positive classes (Final Four
+teams) from negative classes.
+
+```{r}
+#| label: rocCurves
+plot(roc_rf, col="blue", main="ROC Curves Comparison (All Models)")
+lines(roc_xgb, col="purple")
+lines(roc_svm, col="orange")
+lines(roc_knn, col="red")
+lines(roc_nn, col="green")
+
+legend("bottomright", 
+       legend=c(
+         paste0("RF (AUC = ", round(auc_rf, 3), ")"),
+         paste0("XGBoost (AUC = ", round(auc_xgb, 3), ")"),
+         paste0("SVM (AUC = ", round(auc_svm, 3), ")"),
+         paste0("kNN (AUC = ", round(auc_knn, 3), ")"),
+         paste0("NN (AUC = ", round(auc_nn, 3), ")")
+       ), 
+       col=c("blue", "purple", "orange", "red", "green"), 
+       lwd=2,
+       cex = 0.6)
+```
+
+-   **XGBoost (Purple Line)**: Performed the best with an AUC of *0.96*,
+    hugging the top-left corner the tightest.
+-   **Random Forest (Blue Line)**: A close second with an AUC of *0.94*.
+-   **Neural Network (Green Line)**: Performed well with an AUC of
+    *0.71*.
+-   **SVM (Orange Line)**: Showed a "blocky" step function with an AUC
+    of *0.77*, indicating less granular probability estimates.
+-   **kNN (Red Line)**: Performed poorly, falling below the diagonal
+    line with an AUC of *0.34* which performs worse than random guessing
+    of 0.5.
+
+```{r}
+#| tbl-cap: "Metrics Computed for Each Model"
+#| label: metricDF
+metrics_df <- as.data.frame(
+  do.call(rbind, 
+          lapply(list(rf_metrics,xgb_metrics,svm_metrics,nn_metrics,knn_metrics),
+                 unlist))
+) %>%
+  mutate(Model = c("Random Forest","Gradient Boosting","Support Vector Machine",
+                   "Neural Network","k-Nearest Neighbors"))
+
+metrics <- metrics_df %>%
+  kable("latex",
+        booktabs = TRUE,
+        escape = FALSE,
+        float = FALSE) %>%
+  kable_styling(latex_options = c("striped","scale_down"))
+
+metrics
+```
+
+While SVM had the highest raw F1, we believe XGBoost is the superior
+model due to its high AUC and consistent probabilities.
+
+# Conclusion
+
+## RandomForest 2025 Predicitions
+
+```{r}
+#| label: rf_2025Predicitons
+ggplot(
+  data = predictedFinalFours_rf,
+  mapping = aes(x = reorder(Team, -probs), y = probs)
+) +
+  geom_col(color = "black", fill = "skyblue") +
+  geom_text(aes(label = probs),
+            vjust = -0.3, size = 3)+
+  scale_y_continuous(limits = c(0,1)) +
+  labs(title = "Teams and Their Probability to Make the Final Four",
+       subtitle = "RandomForest Model",
+       x = "Team",
+       y = "Probability") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+My RandomForest model accurately predicted three out of the four real
+2025 final four teams. The fourth actual team that did not have a top
+four probability was actually ranked fifth by my model, meaning that
+even if it’s an edge case my model can accurately predict elite
+contenders. The other teams predicted by my model that didn’t end up
+making the final four ended up with the following eliminations:\newline
+
+-   Alabama **DEF** by Duke *\[Elite Eight\]*\newline
+
+-   Texas Tech **DEF** by Florida *\[Elite Eight\]*\newline
+
+-   Purdue **DEF** by Houston *\[Sweet 16\]*\newline
+
+-   BYU **DEF** by Alabama *\[Sweet 16\]*\newline
+
+-   Kentucky **DEF** by #2 Tennessee *\[Sweet 16\]*\newline
+
+-   Gonzaga **DEF** by Houston *\[Round 2 by 5 points\]*\newline
+    \newline
+
+So looking more carefully at the edge cases, my model correctly
+predicted 6 of 8 elite eight teams. It also predicted teams that were
+clearly powerhouses like Gonzaga, Kentucky, and BYU who just got an
+unlucky schedule and were beaten by another predicted team earlier in
+the tournament. Unfortunately, my model is not susceptible to upsets as
+there were three highly favored teams that lost in the first or second
+round.\newline
+
+-   Missouri **DEF** by Drake *\[Round 1\]* **UPSET**\newline
+
+-   Utah State **DEF** by UCLA *\[Round 1\]* **UPSET**\newline
+
+-   St. John’s **DEF** by Arkansas *\[Round 2\]* **UPSET**\newline
+
+## XGBoost 2025 Predicitions
+
+```{r}
+#| label: xgb_2025Preds
+ggplot(
+  data = predictedFinalFours_xgb,
+  mapping = aes(x = reorder(Team, -probs), y = probs)
+) +
+  geom_col(color = "black", fill = "skyblue") +
+  geom_text(aes(label = probs),
+            vjust = -0.3, size = 3)+
+  scale_y_continuous(limits = c(0,1)) +
+  labs(title = "Teams and Their Probability to Make the Final Four",
+       subtitle = "XGBoost Model",
+       x = "Team",
+       y = "Probability") +
+  theme_bw() +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5),
+        plot.subtitle = element_text(face = "bold", hjust = 0.5),
+        axis.title = element_text(face = "bold"),
+        axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+My XGBoost model actually predicted the exact same top four teams as
+Jackson’s Random Forest model: Houston, Florida, Duke, and Alabama.
+However, my model was much more confident in its top pick, giving
+Houston an 72% probability of making the Final Four compared to the
+Random Forest's 55%. Auburn was also the fifth most likely team in my
+model, meaning both models were good at successfully determining elite
+contenders. Just like Jackson's model, mine struggled with upsets, as
+Missouri and St. John's were included in this model as well despite
+losing in the first two rounds. My model also identified new potential
+Final Four contenders in Arizona and Drake, both of whom upset highly 
+favored teams Missouri and Oregon, respectively. With Arizona also making 
+the Sweet 16 this just goes on to show how this model is good at predicting 
+top-tier competitors. Since the predictions were so similar to the Random Forest
+model, it confirms that these teams were the statistical favorites, even
+if the actual tournament results were different due to upsets or the
+unpredictability of the tournament itself.
+
+## Dataset Conclusions
+
+After fully completing model construction and analysis, we found that
+XGBoost was slightly more accurate in its 2025 predictions and therefore
+was the best model overall. From both the RandomForest and XGBoost
+variable importance plots we can see that wins was easily the most
+dominant variable and the best way to see if a team would make the final
+four or not. We can also say efficiency metrics like ADJOE and ADJDE
+were dominant predictors of postseason success. Whereas, defensive
+statistics like TPRD and TORD were not as important when trying to
+predict teams probability of making the final four.
+
+# Appendix
+
+## Datasets
+
+Sundberg, A. (2025, March 20). College Basketball Dataset. Kaggle.
+
+        https://www.kaggle.com/datasets/andrewsundberg/college-basketball-dataset
+
+## Sources
+
+NCAA. (2025, April 15). Browse every NCAA bracket since 1939 with stats
+and records.
+
+        NCAA.
+https://www.ncaa.com/basketball-men/d1/every-ncaa-bracket-1939-today-
+
+        tournament-stats-records
+
+Paine, N., & Voice, J. (2017, March 14). The odds you’ll fill out a
+perfect bracket.
+
+        FiveThirtyEight.
+https://fivethirtyeight.com/features/the-odds-youll-fill-out-a-perfect-
+
+        bracket/
+
+Wilco, D. (2018, November 11). Nine Years of College Basketball Data
+Show Offense Matters
+
+        More in March. NCAA.
+https://www.ncaa.com/news/basketball-men/article/2018-11-
+
+       10/nine years-college-basketball-data-show-offense-matters-more
+
+## R Packages
+
+```{r}
+#| label: packageCitations
+#| warning: false
+packages <- c("tidyverse","ggplot2","caret","glmnet","randomForest","FNN","pROC","nnet","PRROC","xgboost","Matrix","e1071","kableExtra")
+
+citings <- rep(NA, length(packages))
+
+for (i in seq_along(packages)){
+  citings[i] <- citation(packages[[i]])
+}
+
+wrap <- function(x, width = 80) {
+  paste(str_wrap(x, width = width), collapse = "\n")
+}
+
+for (i in seq_along(packages)){
+  cat("-----",packages[[i]],"-----\n")
+  for (entry_index in seq_along(citings[[i]])){
+    cat(wrap(toString(citings[[i]][[entry_index]])))
+    cat(".\n")
+  }
+  cat("\n\n")
+}
+```
