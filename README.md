@@ -39,6 +39,16 @@ These are the teams that our model predicted would make the final four because t
 
 Dataset from Andrew Sundberg on Kaggle: https://www.kaggle.com/datasets/andrewsundberg/college-basketball-dataset
 
+Sources:
+
+NCAA. (2025, April 15). Browse every NCAA bracket since 1939 with stat and records. NCAA. https://www.ncaa.com/basketball-men/d1/every-ncaa-bracket-1939-today-tournament-stats-records
+
+Paine, N., & Voice, J. (2017, March 14). The odds you’ll fill out a perfect bracket. FiveThirtyEight. https://fivethirtyeight.com/features/the-odds-youll-fill-out-a-perfect-bracket/
+
+Wilco, D. (2018, November 11). Nine Years of College Basketball Data Show Offense Matters More in March. NCAA. https://www.ncaa.com/news/basketball-men/article/2018-11-10/nine years-college-basketball-data-show-offense-matters-more
+
+R Packages cited in PDF
+
 ## Authors
 
 Jackson Gasperack - Computational Data Science Major, Math Minor at Penn State University - Contact: jpg6383@psu.edu - LinkedIn: https://www.linkedin.com/in/jackson-gasperack/
