@@ -451,7 +451,7 @@ legend("bottomright",
     hugging the top-left corner the tightest.
 -   **Random Forest (Blue Line)**: A close second with an AUC of *0.94*.
 -   **Neural Network (Green Line)**: Performed well with an AUC of
-    *0.71*.
+    *0.769*.
 -   **SVM (Orange Line)**: Showed a "blocky" step function with an AUC
     of *0.77*, indicating less granular probability estimates.
 -   **kNN (Red Line)**: Performed poorly, falling below the diagonal
@@ -566,9 +566,35 @@ ggplot(
 
 My XGBoost model actually predicted the exact same top four teams as
 Jackson’s Random Forest model: Houston, Florida, Duke, and Alabama.
+<<<<<<< Updated upstream
+<<<<<<< Updated upstream
 However, my model was correct and much more confident in its top pick, giving
 Florida a 72% probability and Houston came in second with a 66% probability of 
 making the Final Four compared to the Random Forest's 56%. Auburn was also the fifth most likely team in my model, meaning both models were good at successfully determining elite contenders. Just like Jackson's model, mine struggled with upsets, as
+=======
+=======
+>>>>>>> Stashed changes
+<<<<<<< HEAD
+<<<<<<< HEAD
+However, my model was much more confident in its top pick, giving
+Florida a 77% probability and Houston an 63% probability of making the 
+Final Four compared to the Random Forest's 55%. Auburn was also the fifth most 
+likely team in my model, meaning both models were good at successfully determining 
+elite contenders. Just like Jackson's model, mine struggled with upsets, as
+=======
+However, my model was correct and much more confident in its top pick, giving
+Florida a 72% probability and Houston came in second with a 66% probability of 
+making the Final Four compared to the Random Forest's 56%. Auburn was also the fifth most likely team in my model, meaning both models were good at successfully determining elite contenders. Just like Jackson's model, mine struggled with upsets, as
+>>>>>>> f0330f5d881d614e0f36a7aed49cdce3c1b74e47
+=======
+However, my model was correct and much more confident in its top pick, giving
+Florida a 72% probability and Houston came in second with a 66% probability of 
+making the Final Four compared to the Random Forest's 56%. Auburn was also the fifth most likely team in my model, meaning both models were good at successfully determining elite contenders. Just like Jackson's model, mine struggled with upsets, as
+>>>>>>> f0330f5d881d614e0f36a7aed49cdce3c1b74e47
+<<<<<<< Updated upstream
+>>>>>>> Stashed changes
+=======
+>>>>>>> Stashed changes
 Missouri and St. John's were included in this model as well despite
 losing in the first two rounds. My model also identified new potential
 Final Four contenders in Arizona and Drake, both of whom upset highly 
