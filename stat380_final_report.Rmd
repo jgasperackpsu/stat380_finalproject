@@ -50,7 +50,7 @@ library(kableExtra)
 ## Motivation
 
 Every year, millions of people fill out their bracket in hopes of being
-the person that correctly predicts the winner of that year’s Basketball
+the person that correctly predicts the winner of that year’s Men's Basketball
 National Championship. However, it is nearly impossible to do this, the
 odds for predicting the first round correctly is 1 to 3500 on its own.
 The odds for filling out an entire perfect bracket are 1 to 2.9
@@ -72,11 +72,11 @@ This notebook is comprised of 13 csv files, one for each year from
 2013-2025 March Madness, and one main file that ranges all the years. In
 each separate year file, the variables comprised of the following for
 the season that lead up to that postseason:\newline \newline - **TEAM**:
-School Name\newline - **CONF**: Division I Conference school is apart
+School name\newline - **CONF**: Division I Conference school is apart
 of\newline - **G**: Games played\newline - **W**: Games won\newline -
 **ADJOE**: Adjusted Offensive Efficiency (Pts/100 possessions)\newline -
 **ADJDE**: Adjusted Defensive Efficiency (Pts allowed/100
-possessions)\newline \_ **BARTHAG**: Power rating (Chance of beatind DI
+possessions)\newline \_ **BARTHAG**: Power rating (Chance of beating D1
 team)\newline - **EFG_O**: Effective FG percentage\newline - **EFG_D**:
 Effective FG percentage allowed\newline - **TOR**: Turnover
 rate\newline - **TORD**: Turnover rate allowed (Steal rate)\newline -
@@ -96,7 +96,7 @@ names that the creator accidentally added. RK in the 2020 dataset is the
 ranking of the teams from where the data was originally scraped, since
 there was not a postseason in 2020 due to COVID. Finally, in the large
 dataset the year of each row was also added since it's the accumulation
-of all the separate year datasets
+of all the separate year datasets.
 
 # Data Analysis
 
@@ -192,7 +192,7 @@ decade. In the 2010’s, offensive production was 50% more important
 towards winning games than defensive production (Wilco, 2018). With the
 game, in general, only becoming more centered around three-point
 shooting we can assume this trend is either the same or has only
-increased more since 2019. We then took every other statistic and found
+increased more since 2018. We then took every other statistic and found
 their correlation to adjusted efficiency for offense and defense. The
 highest indicators were effective field goal rate and two-point rate.
 Finally, we grouped all teams by their postseason result and averaged
@@ -297,7 +297,7 @@ k-Nearest x-values like the previous model did. In this case we fit a
 model of size 5 with 1000 iterations and entropy to predict the best
 possible Final Four combination. After going through thresholds from
 0.001 to 0.15 we found the threshold of around 0.13 to maximize F1 with
-a score of 0.45 which is considered great in a scenario like this when
+a score of 0.35 which is considered good in a scenario like this when
 the predicted class is so uncertain. This model still posted a great
 accuracy of 97.4% and identified the positive class three times better
 than kNN. It’s also worth noting that the neural network model does have
@@ -328,9 +328,9 @@ the neural network. Due to the complexity of the model, we only had a
 for loop go through the previously stated thresholds. We fit a random
 forest model of 5000 trees which had a 1% OOB estimate of error rate.
 After going through these thresholds we found that a threshold of around
-0.14 maximized the F1 score for this model. We were able to achieve a F1
-score of 0.37 along with an accuracy of around 97% which regresses from
-our neural network solely in F1 while maintaining the high accuracy. We
+0.15 maximized the F1 score for this model. We were able to achieve a F1
+score of 0.37 along with an accuracy of around 97% which improves on 
+the previous model's F1 score while maintaining the high accuracy. We
 also saw that the F1 score kept increasing past 0.15 so we tried to
 increase the threshold up to 0.3. However when we did that we realized
 that even though F1 scores kept increasing, less and less teams were
@@ -401,6 +401,14 @@ Importance plot, the model heavily favored Wins (W) and Adjusted
 Offensive Efficiency (ADJOE), confirming that in modern college
 basketball, elite offense is a stronger predictor of deep tournament
 runs than defense.
+
+```{r}
+#| label: xgboostFeatureImp
+
+# Feature Importance for XGBoost
+importance_matrix <- xgb.importance(colnames(dtrain), model = xgb_model)
+xgb.plot.importance(importance_matrix, top_n = 10, main = "XGBoost Feature Importance")
+```
 
 ```{r}
 #| label: XGB_F1
@@ -565,15 +573,16 @@ ggplot(
 My XGBoost model actually predicted the exact same top four teams as
 Jackson’s Random Forest model: Houston, Florida, Duke, and Alabama.
 However, my model was much more confident in its top pick, giving
-Houston an 80% probability of making the Final Four compared to the
+Houston an 72% probability of making the Final Four compared to the
 Random Forest's 55%. Auburn was also the fifth most likely team in my
 model, meaning both models were good at successfully determining elite
 contenders. Just like Jackson's model, mine struggled with upsets, as
 Missouri and St. John's were included in this model as well despite
-losing in the first two rounds. My model also identified a new potential
-Final Four contender in Arizona. With Arizona also making the Sweet 16
-this just goes on to show how this model is good at predicting top-tier
-competitors. Since the predictions were so similar to the Random Forest
+losing in the first two rounds. My model also identified new potential
+Final Four contenders in Arizona and Drake, both of whom upset highly 
+favored teams Missouri and Oregon, respectively. With Arizona also making 
+the Sweet 16 this just goes on to show how this model is good at predicting 
+top-tier competitors. Since the predictions were so similar to the Random Forest
 model, it confirms that these teams were the statistical favorites, even
 if the actual tournament results were different due to upsets or the
 unpredictability of the tournament itself.
