@@ -357,7 +357,7 @@ enabled probability generation to allow for ROC curve analysis later.
 After training the model on our selected features, I tuned the decision
 threshold to maximize the F1 score. Interestingly, the SVM model
 produced the highest F1 score of the entire project at 0.769 with an
-accuracy of 99.5%. While these numbers look incredible on paper, the
+accuracy of 96.9%. While these numbers look incredible on paper, the
 Area Under the Curve (AUC) was 0.772, which is significantly lower than
 the tree-based models (Random Forest and XGBoost). This discrepancy
 suggests that while the SVM found a very specific decision boundary that
@@ -566,11 +566,9 @@ ggplot(
 
 My XGBoost model actually predicted the exact same top four teams as
 Jackson’s Random Forest model: Houston, Florida, Duke, and Alabama.
-However, my model was much more confident in its top pick, giving
-Houston an 72% probability of making the Final Four compared to the
-Random Forest's 55%. Auburn was also the fifth most likely team in my
-model, meaning both models were good at successfully determining elite
-contenders. Just like Jackson's model, mine struggled with upsets, as
+However, my model was correct and much more confident in its top pick, giving
+Florida a 72% probability and Houston came in second with a 66% probability of 
+making the Final Four compared to the Random Forest's 56%. Auburn was also the fifth most likely team in my model, meaning both models were good at successfully determining elite contenders. Just like Jackson's model, mine struggled with upsets, as
 Missouri and St. John's were included in this model as well despite
 losing in the first two rounds. My model also identified new potential
 Final Four contenders in Arizona and Drake, both of whom upset highly 
