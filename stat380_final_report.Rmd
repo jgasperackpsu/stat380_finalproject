@@ -49,7 +49,54 @@ library(kableExtra)
 
 ## Motivation
 
+Every year, millions of people fill out their bracket in hopes of being
+the person that correctly predicts the winner of that year’s Basketball
+National Championship. However, it is nearly impossible to do this, the
+odds for predicting the first round correctly is 1 to 3500 on its own.
+The odds for filling out an entire perfect bracket are 1 to 2.9
+quintillion assuming each team has a 50/50 chance of winning or losing.
+That's not the case however, as statistics, seedings, and rosters
+influence how people choose which team will win each game. But, even
+with more robust models, like FiveThirtyEight's mentioned in their
+article, the odds are still a staggering 1 in 2 billion (Paine & Voice,
+2017). It is so unpredictable to pick a single winner that we even had
+to modify our research question since our models began to underfit. To
+make this unpredictable choice a little more clear we wanted to create a
+model that could predict which teams would be most likely to make the
+Final Four.
+
 ## Dataset Description
+
+We imported Lundberg's dataset, College Basketball Dataset, from Kaggle.
+This notebook is comprised of 13 csv files, one for each year from
+2013-2025 March Madness, and one main file that ranges all the years. In
+each separate year file, the variables comprised of the following for
+the season that lead up to that postseason:\newline \newline - **TEAM**:
+School Name\newline - **CONF**: Division I Conference school is apart
+of\newline - **G**: Games played\newline - **W**: Games won\newline -
+**ADJOE**: Adjusted Offensive Efficiency (Pts/100 possessions)\newline -
+**ADJDE**: Adjusted Defensive Efficiency (Pts allowed/100
+possessions)\newline \_ **BARTHAG**: Power rating (Chance of beatind DI
+team)\newline - **EFG_O**: Effective FG percentage\newline - **EFG_D**:
+Effective FG percentage allowed\newline - **TOR**: Turnover
+rate\newline - **TORD**: Turnover rate allowed (Steal rate)\newline -
+**ORB**: Offensive rebound rate\newline - **DRB**: Offensive rebound
+rate allowed\newline - **FTR**: Free throw percentage\newline -
+**FTRD**: Free throw percentage allowed\newline - **2P_O**: Two-point FG
+percentage\newline - **2P_D**: Two-point FG percentage allowed\newline -
+**3P_O**: Three-point FG percentage\newline - **3P_D**: Three-point FG
+percentage allowed\newline - **ADJ_T**: Adjusted tempo (possessions/40
+mins)\newline - **WAB**: Wins above bubble (Wins after the March Madness
+qualification cutoff)\newline - **POSTSEASON**: Postseason round of
+elimination\newline - **SEED**: Seed in March Madness\newline
+
+In the 2025 dataset, 3PR and 3PRD were added, they weren't specified in
+the data card but I assumed it was just 3P_O and 3P_D with different
+names that the creator accidentally added. RK in the 2020 dataset is the
+ranking of the teams from where the data was originally scraped, since
+there was not a postseason in 2020 due to COVID. Finally, in the large
+dataset the year of each row was also added since it's the accumulation
+of all the separate year datasets
 
 # Data Analysis
 
@@ -142,14 +189,14 @@ ggplot(
 
 This makes sense as basketball has turned very offensive in the last
 decade. In the 2010’s, offensive production was 50% more important
-towards winning games than defensive production (NCAA). With the game,
-in general, only becoming more centered around three-point shooting we
-can assume this trend is either the same or has only increased more
-since 2019. We then took every other statistic and found their
-correlation to adjusted efficiency for offense and defense. The highest
-indicators were effective field goal rate and two-point rate. Finally,
-we grouped all teams by their postseason result and averaged the
-offensive and defensive efficiencies for each seed across all years.
+towards winning games than defensive production (Wilco, 2018). With the
+game, in general, only becoming more centered around three-point
+shooting we can assume this trend is either the same or has only
+increased more since 2019. We then took every other statistic and found
+their correlation to adjusted efficiency for offense and defense. The
+highest indicators were effective field goal rate and two-point rate.
+Finally, we grouped all teams by their postseason result and averaged
+the offensive and defensive efficiencies for each seed across all years.
 This showed the same trend as the last plot. The early round exits are
 better defensive performers but the final eight teams usually have
 better offensive performance.
@@ -282,13 +329,14 @@ for loop go through the previously stated thresholds. We fit a random
 forest model of 5000 trees which had a 1% OOB estimate of error rate.
 After going through these thresholds we found that a threshold of around
 0.14 maximized the F1 score for this model. We were able to achieve a F1
-score of 0.37 along with an accuracy of around 97% which regresses from our
-neural network solely in F1 while maintaining the high accuracy. We also saw
-that the F1 score kept increasing past 0.15 so we tried to increase the
-threshold up to 0.3. However when we did that we realized that even
-though F1 scores kept increasing, less and less teams were counted as
-successes which led to limited findings. So, we decided to cap it at
-0.15 in order to interpret our model’s predictions more accurately.
+score of 0.37 along with an accuracy of around 97% which regresses from
+our neural network solely in F1 while maintaining the high accuracy. We
+also saw that the F1 score kept increasing past 0.15 so we tried to
+increase the threshold up to 0.3. However when we did that we realized
+that even though F1 scores kept increasing, less and less teams were
+counted as successes which led to limited findings. So, we decided to
+cap it at 0.15 in order to interpret our model’s predictions more
+accurately.
 
 ```{r}
 #| label: RF_F1
@@ -397,17 +445,16 @@ legend("bottomright",
        cex = 0.6)
 ```
 
--   **XGBoost (Purple Line)**: Performed the best with an AUC of
-    *0.96*, hugging the top-left corner the tightest.
--   **Random Forest (Blue Line)**: A close second with an AUC of
-    *0.94*.
+-   **XGBoost (Purple Line)**: Performed the best with an AUC of *0.96*,
+    hugging the top-left corner the tightest.
+-   **Random Forest (Blue Line)**: A close second with an AUC of *0.94*.
 -   **Neural Network (Green Line)**: Performed well with an AUC of
     *0.71*.
 -   **SVM (Orange Line)**: Showed a "blocky" step function with an AUC
     of *0.77*, indicating less granular probability estimates.
 -   **kNN (Red Line)**: Performed poorly, falling below the diagonal
-    line with an AUC of *0.34* which performs worse than random
-    guessing of 0.5.
+    line with an AUC of *0.34* which performs worse than random guessing
+    of 0.5.
 
 ```{r}
 #| tbl-cap: "Metrics Computed for Each Model"
@@ -553,14 +600,6 @@ Sundberg, A. (2025, March 20). College Basketball Dataset. Kaggle.
 
 ## Sources
 
-Wilco, D. (2018, November 11). Nine Years of College Basketball Data
-Show Offense Matters
-
-        More in March. NCAA.
-https://www.ncaa.com/news/basketball-men/article/2018-11-
-
-       10/nine years-college-basketball-data-show-offense-matters-more
-
 NCAA. (2025, April 15). Browse every NCAA bracket since 1939 with stats
 and records.
 
@@ -568,6 +607,22 @@ and records.
 https://www.ncaa.com/basketball-men/d1/every-ncaa-bracket-1939-today-
 
         tournament-stats-records
+
+Paine, N., & Voice, J. (2017, March 14). The odds you’ll fill out a
+perfect bracket.
+
+        FiveThirtyEight.
+https://fivethirtyeight.com/features/the-odds-youll-fill-out-a-perfect-
+
+        bracket/
+
+Wilco, D. (2018, November 11). Nine Years of College Basketball Data
+Show Offense Matters
+
+        More in March. NCAA.
+https://www.ncaa.com/news/basketball-men/article/2018-11-
+
+       10/nine years-college-basketball-data-show-offense-matters-more
 
 ## R Packages
 
