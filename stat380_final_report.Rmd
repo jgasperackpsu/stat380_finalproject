@@ -234,11 +234,6 @@ to the null model. Finally, we used the step function a third time to do
 stepwise selection which goes both ways. After printing their summaries,
 the forward selection model performed the best with an AIC of 209.49.
 
-```{r}
-#| label: forwardSelection
-print(summary(forward_selection))
-```
-
 After seeing the p-values, we decided to remove BARTHAG since it didn’t
 seem to contribute much. We did a plug-in method afterwards in order to
 add more features to reduce overfitting while also maintaining a
