@@ -52,12 +52,4 @@ R Packages cited in PDF
 ## Authors
 
 Jackson Gasperack - Computational Data Science Major, Math Minor at Penn State University - Contact: jpg6383@psu.edu - LinkedIn: https://www.linkedin.com/in/jackson-gasperack/
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 Sawan Pandita - Computational Data Science Major, Statistics Minor at Penn State University - Contact: sbp5882@psu.edu - LinkedIn: https://www.linkedin.com/in/sawanpandita
-=======
-Sawan Pandita - Computational Data Science Major, Statistics Minor at Penn State University - Contact: sbp5882@psu.edu - LinkedIn: https://www.linkedin.com/in/sawanpandita
->>>>>>> Stashed changes
-=======
-Sawan Pandita - Computational Data Science Major, Statistics Minor at Penn State University - Contact: sbp5882@psu.edu - LinkedIn: https://www.linkedin.com/in/sawanpandita
->>>>>>> Stashed changes
